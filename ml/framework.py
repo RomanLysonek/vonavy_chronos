@@ -1,0 +1,1376 @@
+"""Shared contracts for the vonavy_chronos benchmark.
+
+This module owns the frozen retail feature engineering, direct multi-horizon
+panel, availability-aware baselines, model registry and evaluation metrics.
+The only active model implementations are ``models/neural_net.py`` and
+``models/chronos2_model.py``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+@dataclass
+class Config:
+    train_path: str = "data/train_data.parquet"
+    test_path: str = "data/test_data.parquet"
+    output_dir: str = "outputs"
+    horizon: int = 7                      # forecast horizon in days
+    lag_windows: tuple = (7, 14, 28)
+    num_products: int = 30                # overwritten from data in main()
+    embed_dim_product: int = 12
+    embed_dim_campaign: int = 4
+    embed_dim_horizon: int = 4
+    hidden_dims: tuple = (256, 128, 64)
+    dropout: tuple = (0.20, 0.15, 0.10)
+    lr: float = 1e-3
+    weight_decay: float = 1e-4
+    batch_size: int = 512
+    reference_batch_size: int = 512
+    nn_lr_scaling: str = "fixed"        # fixed | sqrt | linear
+    nn_training_backend: str = "auto"   # auto | device_resident | dataloader
+    cv_epochs: int = 30                   # per fold, no early stopping (avoids peeking at eval fold)
+    final_epochs: int = 60                # final three-seed incumbent fit
+    seeds: tuple = (42, 123, 777)
+    n_cv_folds: int = 4
+    seed: int = 42
+
+    # Tier C0.1: recursive numerical stability.  The neural network is
+    # trained in baseline-relative log-residual space; robust support bounds
+    # prevent a finite but unsupported residual from becoming a six-figure
+    # natural-scale feedback value.  The generic guard remains a deliberately
+    # broad last resort, not a normal retail prediction cap.
+    nn_residual_guard_lower_quantile: float = 0.001
+    nn_residual_guard_upper_quantile: float = 0.999
+    nn_residual_guard_margin: float = 1.0
+    recursive_safety_multiplier: float = 50.0
+    recursive_safety_floor: float = 10_000.0
+
+    # Tier C1: nonstationarity controls.  Defaults exactly preserve the C0
+    # estimator.  A history window removes older supervised targets, while
+    # half-life weighting keeps them but discounts their loss contribution.
+    training_window_days: int | None = None
+    recency_half_life_days: float | None = None
+    baseline_variant: str = "weighted_4321"
+    enable_trend_features: bool = False
+
+    # Tier C2: semantic feature groups. The empty tuple preserves the C1
+    # estimator exactly; groups are enabled explicitly by the screening runner
+    # or CLI. Keeping groups named and atomic makes ablations reproducible.
+    c2_feature_groups: tuple[str, ...] = ("price", "campaign", "lifecycle", "market", "event")
+
+    # Tier C3: objective and target formulation. Defaults preserve the
+    # confirmed C2 estimator. ``combined`` mixes Huber and MSE per row;
+    # ``log1p`` predicts the raw log-count instead of a baseline residual.
+    nn_loss: str = "mse"                # frozen incumbent objective
+    nn_target_mode: str = "residual"    # residual | log1p
+    nn_huber_delta: float = 1.0
+    nn_combined_mse_weight: float = 0.25
+    # Tier C4: channel-composition state and auxiliary task. Channel-history
+    # features are opt-in so the confirmed C2 estimator remains reproducible.
+    # Positive auxiliary weight trains an app-share head through the shared
+    # representation while the submitted target stays total quantity.
+    enable_channel_history_features: bool = False
+    channel_aux_weight: float = 0.0
+    channel_share_smoothing: float = 0.5
+
+    # Optional Chronos-2 zero-shot foundation-model challenger. Disabled by
+    # default so the established pipeline has no extra dependency or model
+    # download; enabling it adds a direct-only OOF/final forecast on the same
+    # product/date keys and evaluation populations as every incumbent model.
+    enable_chronos2: bool = False
+    chronos2_model_id: str = "amazon/chronos-2"
+    chronos2_device: str = "auto"       # auto | cpu | cuda | mps
+    chronos2_dtype: str = "float32"     # auto | float32 | bfloat16 | float16
+    chronos2_batch_size: int = 100
+    chronos2_context_length: int | None = None
+    chronos2_cross_learning: bool = True
+    chronos2_covariates: bool = True
+    chronos2_quantile_levels: tuple[float, ...] = (0.1, 0.5, 0.9)
+
+
+CFG = Config()
+np.random.seed(CFG.seed)
+
+# Campaign sub-type ids are categorical codes, not an ordinal scale -> embed
+# them (NN) / mark them as pandas 'category' dtype (trees) instead of
+# feeding the raw integer in as a numeric feature.
+CAMPAIGN_CATEGORIES = [-1, 0, 1, 2, 3, 4, 5, 16, 18, 19]
+CAMPAIGN_TO_IDX = {v: i for i, v in enumerate(CAMPAIGN_CATEGORIES)}
+NUM_CAMPAIGN_CATS = len(CAMPAIGN_CATEGORIES)
+
+STATIC_NUMERIC_FEATURES = [
+    "day_of_week_sin", "day_of_week_cos",
+    "month_sin", "month_cos",
+    "day_of_year_sin", "day_of_year_cos",
+    "week_of_year_sin", "week_of_year_cos",
+    "day_of_month", "is_weekend",
+    "discount_web", "discount_app", "discount_max",
+    "effective_price_web", "effective_price_app",
+    "is_sale", "price", "price_rel",
+    # Keep the historical name for compatibility, but distinguish the two
+    # lifecycle clocks explicitly.  Some products have rows long before they
+    # first become available, while others simply have no pre-launch rows.
+    "days_since_launch", "days_since_first_row",
+    "days_since_first_available", "is_pre_first_available",
+]
+
+# C1 features are opt-in so the C0 baseline remains reproducible.  The
+# calendar-time feature is target-date known; ratio features are origin/target
+# history summaries and are computed in ``build_direct_panel``.
+TREND_TARGET_FEATURES = ["calendar_time_years"]
+TREND_ORIGIN_FEATURES = [
+    "trend_log_ratio_mean_7_28",
+    "trend_log_ratio_mean_14_28",
+    "trend_log_ratio_lag0_28",
+    "trend_log_slope_7",
+    "trend_log_slope_28",
+]
+TREND_SEASONAL_FEATURES = [
+    "annual_reference",
+    "annual_reference_missing",
+    "trend_log_ratio_baseline_annual",
+]
+
+BASELINE_VARIANTS = {
+    "weighted_4321",
+    "weighted_8421",
+    "lag7",
+    "weekday_median",
+}
+
+# Tier C2 semantic groups. These are deliberately grouped around business
+# mechanisms rather than individual columns so the ablation answers useful
+# questions without a combinatorial feature search.
+C2_FEATURE_GROUPS = ("price", "campaign", "lifecycle", "market", "event")
+
+NN_LOSSES = ("huber", "mse", "combined", "logcosh")
+NN_TARGET_MODES = ("residual", "log1p")
+
+CHANNEL_HISTORY_FEATURES = [
+    "app_share_lag_0",
+    "app_share_lag_7",
+    "app_share_roll_7",
+    "app_share_roll_28",
+    "app_share_recent_long_delta",
+    "app_share_observed_count_28",
+    "app_qty_roll_mean_7",
+    "app_qty_roll_mean_28",
+    "web_qty_roll_mean_7",
+    "web_qty_roll_mean_28",
+]
+
+PRICE_TARGET_FEATURES = [
+    "app_effective_price_log_advantage",
+]
+PRICE_PANEL_FEATURES = [
+    "price_log_ratio_vs_origin",
+    "price_log_ratio_vs_lag7",
+    "price_log_ratio_vs_median28",
+    "effective_price_web_log_ratio_vs_median28",
+    "effective_price_app_log_ratio_vs_median28",
+]
+CAMPAIGN_SEMANTIC_FEATURES = [
+    "campaign_web_active",
+    "campaign_app_active",
+    "campaign_any_active",
+    "app_only_campaign",
+    "campaign_subtypes_match",
+    "discount_without_campaign_web",
+    "discount_without_campaign_app",
+    "app_discount_advantage",
+]
+LIFECYCLE_ORIGIN_FEATURES = [
+    "current_is_available",
+    "current_is_calendar_gap",
+    "consecutive_unavailable_days",
+    "days_since_last_observed",
+    "history_observed_days",
+    "history_available_days",
+    "recently_reavailable",
+]
+MARKET_TARGET_FEATURES = [
+    "market_campaign_web_rate",
+    "market_campaign_app_rate",
+    "market_app_only_campaign_rate",
+    "market_mean_discount_web",
+    "market_mean_discount_app",
+    "market_mean_app_discount_advantage",
+]
+MARKET_ORIGIN_FEATURES = [
+    "market_total_qty_lag0",
+    "market_total_qty_lag1",
+    "market_total_qty_lag7",
+    "market_roll_mean_7",
+    "market_roll_mean_28",
+    "market_recent_long_log_ratio",
+    "market_mean_qty_per_available_lag0",
+    "market_available_product_count_lag0",
+    "market_total_excl_product_lag0",
+]
+EVENT_TARGET_FEATURES = [
+    "days_from_black_friday",
+    "black_friday_proximity_14",
+    "days_from_christmas",
+    "christmas_proximity_14",
+    "days_from_valentine",
+    "valentine_proximity_14",
+    "days_from_mothers_day",
+    "mothers_day_proximity_14",
+    "is_black_friday_window",
+    "is_christmas_window",
+    "is_new_year_window",
+]
+
+
+def normalize_c2_feature_groups(value) -> tuple[str, ...]:
+    """Canonicalise a C2 group specification.
+
+    Accepts an iterable or a comma-separated string. ``all`` expands to every
+    group and ``none``/empty disables C2, which preserves the confirmed C1
+    estimator. The canonical order is stable for checkpoint signatures.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"", "none"}:
+            return ()
+        if text == "all":
+            return C2_FEATURE_GROUPS
+        tokens = [token.strip().lower() for token in text.split(",") if token.strip()]
+    else:
+        tokens = [str(token).strip().lower() for token in value if str(token).strip()]
+    unknown = sorted(set(tokens) - set(C2_FEATURE_GROUPS))
+    if unknown:
+        raise ValueError(
+            f"Unknown C2 feature groups {unknown}; expected {list(C2_FEATURE_GROUPS)}"
+        )
+    token_set = set(tokens)
+    return tuple(group for group in C2_FEATURE_GROUPS if group in token_set)
+
+
+def c2_group_enabled(cfg: Config, group: str) -> bool:
+    return group in normalize_c2_feature_groups(cfg.c2_feature_groups)
+
+
+def lag_feature_names(lag_windows) -> list[str]:
+    """Origin-history feature names.
+
+    ``stockout_rate`` is retained as a backward-compatible alias for the
+    observed-unavailable rate.  Calendar gaps are tracked separately rather
+    than silently being counted as stockouts.
+    """
+    names = []
+    for w in lag_windows:
+        names += [
+            f"qty_roll_mean_{w}", f"qty_roll_std_{w}",
+            f"qty_roll_median_{w}", f"qty_available_count_{w}",
+            f"observed_count_{w}", f"unavailable_count_{w}",
+            f"calendar_gap_count_{w}", f"available_observation_rate_{w}",
+            f"observed_rate_{w}", f"unavailable_rate_{w}",
+            f"calendar_gap_rate_{w}", f"stockout_rate_{w}",
+        ]
+    return names
+
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+def reindex_daily_calendar(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill in any missing calendar days per product so every later
+    `shift(1)` means "yesterday", not "whatever row happened to be
+    previous". Two products in this dataset (1 and 30) have gaps sitting in
+    the middle of otherwise-continuous, available history -- a data glitch,
+    not a real absence from the catalog -- so a gap day's Quantity /
+    ProductAvailable are unknown, not zero: they're filled as NaN / <NA>.
+    Availability-aware rolling features keep these calendar gaps separate
+    from observed stockouts. `is_gap_filled` records provenance.
+    """
+    frames = []
+    for pid, sub in df.groupby("ProductId", sort=True):
+        sub = sub.sort_values("DateKey")
+        full_idx = pd.date_range(sub["DateKey"].min(), sub["DateKey"].max(), freq="D")
+        original_dates = set(sub["DateKey"])
+        reindexed = sub.set_index("DateKey").reindex(full_idx)
+        reindexed.index.name = "DateKey"
+        reindexed["is_gap_filled"] = ~reindexed.index.isin(original_dates)
+        reindexed["ProductId"] = pid
+        frames.append(reindexed.reset_index())
+
+    out = pd.concat(frames, ignore_index=True).sort_values(["ProductId", "DateKey"]).reset_index(drop=True)
+    out["ProductAvailable"] = out["ProductAvailable"].astype("boolean")  # nullable -> NaN for gap rows
+    out["Quantity"] = out["Quantity"].astype(float)                     # NaN for gap rows
+
+    carry_forward = ["CampaignSubTypeWeb", "CampaignSubTypeApp", "DiscountValueWebRelative",
+                      "DiscountValueAppRelative", "IsSaleOrPromo", "PriceLocalVat"]
+    for col in carry_forward:
+        if col in out.columns:
+            out[col] = out.groupby("ProductId")[col].transform(lambda s: s.ffill().bfill())
+    return out
+
+
+def product_reference_dates(
+    raw_df: pd.DataFrame,
+) -> tuple[pd.Series, pd.Series]:
+    """Training-only first-row and first-confirmed-available dates.
+
+    Products in this dataset encode lifecycle differently: some have no rows
+    before launch, while others have long observed-but-unavailable prefixes.
+    Keeping both clocks prevents those states from being conflated.
+    """
+    first_seen = raw_df.groupby("ProductId")["DateKey"].min()
+    gap = raw_df.get(
+        "is_gap_filled", pd.Series(False, index=raw_df.index)
+    ).astype("boolean").fillna(False).astype(bool)
+    available = raw_df["ProductAvailable"].fillna(False).astype(bool) & ~gap
+    first_available = (
+        raw_df.loc[available]
+        .groupby("ProductId")["DateKey"]
+        .min()
+        .reindex(first_seen.index)
+        .fillna(first_seen)
+    )
+    return first_seen, first_available
+
+
+def load_raw(cfg: Config = CFG) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train = pd.read_parquet(cfg.train_path)
+    test = pd.read_parquet(cfg.test_path)
+    train["Quantity"] = (train["QuantityApp"].fillna(0) + train["QuantityWeb"].fillna(0)).astype(float)
+
+    ids = sorted(train["ProductId"].unique())
+    assert ids == list(range(1, len(ids) + 1)), "ProductId is expected to be contiguous 1..N"
+
+    train = reindex_daily_calendar(train)
+    return train, test
+
+
+# ---------------------------------------------------------------------------
+# Feature engineering (static features: no leakage, safe for train/eval/test)
+# ---------------------------------------------------------------------------
+def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
+    dt = df["DateKey"]
+    df["day_of_week"] = dt.dt.dayofweek
+    df["day_of_month"] = dt.dt.day
+    df["month"] = dt.dt.month
+    df["week_of_year"] = dt.dt.isocalendar().week.astype(int)
+    df["day_of_year"] = dt.dt.dayofyear
+    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
+    for col, period in [("day_of_week", 7), ("month", 12), ("day_of_year", 365), ("week_of_year", 52)]:
+        df[f"{col}_sin"] = np.sin(2 * np.pi * df[col] / period)
+        df[f"{col}_cos"] = np.cos(2 * np.pi * df[col] / period)
+    return df
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> pd.Timestamp:
+    first = pd.Timestamp(year=year, month=month, day=1)
+    offset = (weekday - first.weekday()) % 7
+    return first + pd.Timedelta(days=offset + 7 * (n - 1))
+
+
+def _black_friday(year: int) -> pd.Timestamp:
+    return _nth_weekday_of_month(year, 11, 4, 4)
+
+
+def _mothers_day(year: int) -> pd.Timestamp:
+    # Czech and Slovak retail calendars use the second Sunday in May.
+    return _nth_weekday_of_month(year, 5, 6, 2)
+
+
+def _nearest_annual_event_distance(
+    dates: pd.Series, event_factory, *, clip_days: int = 60
+) -> np.ndarray:
+    """Signed days from the nearest annual occurrence, clipped for stability."""
+    values = pd.to_datetime(dates).reset_index(drop=True)
+    years = values.dt.year
+    required_years = range(int(years.min()) - 1, int(years.max()) + 2)
+    event_by_year = {year: event_factory(year) for year in required_years}
+    distances = []
+    for offset in (-1, 0, 1):
+        events = (years + offset).map(event_by_year)
+        distances.append((values - events).dt.days.to_numpy(dtype=float))
+    matrix = np.column_stack(distances)
+    nearest = matrix[np.arange(len(matrix)), np.abs(matrix).argmin(axis=1)]
+    return np.clip(nearest, -clip_days, clip_days).astype(float)
+
+
+def add_retail_event_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Known-in-advance retail-event distance and window features."""
+    dates = pd.to_datetime(df["DateKey"])
+    event_specs = {
+        "black_friday": _black_friday,
+        "christmas": lambda year: pd.Timestamp(year=year, month=12, day=24),
+        "valentine": lambda year: pd.Timestamp(year=year, month=2, day=14),
+        "mothers_day": _mothers_day,
+    }
+    for name, factory in event_specs.items():
+        distance = _nearest_annual_event_distance(dates, factory)
+        df[f"days_from_{name}"] = distance
+        df[f"{name}_proximity_14"] = np.exp(-np.abs(distance) / 14.0)
+    df["is_black_friday_window"] = (
+        np.abs(df["days_from_black_friday"]) <= 4
+    ).astype(float)
+    df["is_christmas_window"] = (
+        np.abs(df["days_from_christmas"]) <= 10
+    ).astype(float)
+    # The post-Christmas/New-Year demand regime spans the turn of the year.
+    month_day = dates.dt.strftime("%m-%d")
+    df["is_new_year_window"] = (
+        month_day.ge("12-27") | month_day.le("01-07")
+    ).astype(float)
+    return df
+
+
+def prepare_features(
+    df: pd.DataFrame,
+    price_ref: pd.Series,
+    first_seen: pd.Series,
+    first_available: pd.Series | None = None,
+    cfg: Config = CFG,
+) -> pd.DataFrame:
+    """Add features that do not depend on the target's own recent history.
+
+    ``price_ref``, ``first_seen`` and ``first_available`` must be computed from
+    training-only data by the caller.  ``first_available`` is optional for
+    backward compatibility; when absent it falls back to ``first_seen``.
+    """
+    df = df.copy()
+    df = add_calendar_features(df)
+
+    df["campaign_idx_web"] = df["CampaignSubTypeWeb"].map(CAMPAIGN_TO_IDX).fillna(0).astype(int)
+    df["campaign_idx_app"] = df["CampaignSubTypeApp"].map(CAMPAIGN_TO_IDX).fillna(0).astype(int)
+    df["discount_web"] = df["DiscountValueWebRelative"].fillna(0).astype(float)
+    df["discount_app"] = df["DiscountValueAppRelative"].fillna(0).astype(float)
+    df["discount_max"] = np.maximum(df["discount_web"], df["discount_app"])
+    df["is_sale"] = df["IsSaleOrPromo"].astype(int)
+    df["price"] = df["PriceLocalVat"].fillna(0).astype(float)
+    # Two channel-specific discount percentages don't sum to a meaningful
+    # "total discount" (a 10% web cut + 10% app cut is not a 20% market
+    # discount) -- effective per-channel price is the economically sound
+    # combination instead.
+    df["effective_price_web"] = df["price"] * (1.0 - df["discount_web"] / 100.0)
+    df["effective_price_app"] = df["price"] * (1.0 - df["discount_app"] / 100.0)
+
+    # C2 semantics are computed only when their group is active. This keeps
+    # the confirmed C1 control fast and ensures local experiment Config copies
+    # (not only the module-global CFG) determine the actual feature contract.
+    need_campaign_semantics = (
+        c2_group_enabled(cfg, "campaign") or c2_group_enabled(cfg, "market")
+    )
+    if need_campaign_semantics:
+        web_subtype = pd.to_numeric(
+            df["CampaignSubTypeWeb"], errors="coerce"
+        ).fillna(-1).astype(int)
+        app_subtype = pd.to_numeric(
+            df["CampaignSubTypeApp"], errors="coerce"
+        ).fillna(-1).astype(int)
+        df["campaign_web_active"] = (web_subtype != -1).astype(float)
+        df["campaign_app_active"] = (app_subtype != -1).astype(float)
+        df["campaign_any_active"] = (
+            (df["campaign_web_active"] > 0) | (df["campaign_app_active"] > 0)
+        ).astype(float)
+        df["app_only_campaign"] = (
+            (df["campaign_app_active"] > 0) & (df["campaign_web_active"] == 0)
+        ).astype(float)
+        df["campaign_subtypes_match"] = (web_subtype == app_subtype).astype(float)
+        df["discount_without_campaign_web"] = (
+            (web_subtype == -1) & (df["discount_web"] > 0)
+        ).astype(float)
+        df["discount_without_campaign_app"] = (
+            (app_subtype == -1) & (df["discount_app"] > 0)
+        ).astype(float)
+        df["app_discount_advantage"] = df["discount_app"] - df["discount_web"]
+
+    if c2_group_enabled(cfg, "price"):
+        df["app_effective_price_log_advantage"] = (
+            np.log1p(np.clip(df["effective_price_web"].to_numpy(dtype=float), 0.0, None))
+            - np.log1p(np.clip(df["effective_price_app"].to_numpy(dtype=float), 0.0, None))
+        )
+
+    if c2_group_enabled(cfg, "market"):
+        # Target-date market promotion intensity is known for the supplied
+        # future panel. It contains no quantity information.
+        by_date = df.groupby("DateKey", sort=False)
+        df["market_campaign_web_rate"] = by_date["campaign_web_active"].transform("mean")
+        df["market_campaign_app_rate"] = by_date["campaign_app_active"].transform("mean")
+        df["market_app_only_campaign_rate"] = by_date["app_only_campaign"].transform("mean")
+        df["market_mean_discount_web"] = by_date["discount_web"].transform("mean")
+        df["market_mean_discount_app"] = by_date["discount_app"].transform("mean")
+        df["market_mean_app_discount_advantage"] = by_date["app_discount_advantage"].transform("mean")
+
+    if c2_group_enabled(cfg, "event"):
+        df = add_retail_event_features(df)
+
+    ref = df["ProductId"].map(price_ref).replace(0, np.nan)
+    df["price_rel"] = (df["price"] / ref).fillna(1.0)
+    first_row_date = df["ProductId"].map(first_seen)
+    if first_available is None:
+        first_available = first_seen
+    first_available_date = df["ProductId"].map(first_available).fillna(first_row_date)
+    df["days_since_first_row"] = (df["DateKey"] - first_row_date).dt.days
+    # Historical compatibility: the old feature was actually days since the
+    # first row, not necessarily since launch/availability.
+    df["days_since_launch"] = df["days_since_first_row"]
+    df["days_since_first_available"] = (
+        df["DateKey"] - first_available_date
+    ).dt.days
+    df["is_pre_first_available"] = (
+        df["DateKey"] < first_available_date
+    ).astype(int)
+    # Absolute calendar time lets a pooled model represent market-wide level
+    # drift (especially the 2024-2026 web decline) without treating ProductId
+    # lifecycle age as a proxy for the global regime.  It is only included in
+    # the model schema when ``enable_trend_features`` is true.
+    df["calendar_time_years"] = (
+        df["DateKey"] - pd.Timestamp("2021-01-01")
+    ).dt.days.astype(float) / 365.25
+
+    df["product_idx"] = df["ProductId"] - 1
+    return df
+
+
+# Weighted same-weekday baseline: a 4:3:2:1 weighted average of Quantity at
+# lags 7/14/21/28 days. Shared by `compute_baseline` below (a `hist_df`
+# lookup, used for the naive-baseline diagnostic column and as a
+# seasonal-naive fallback) and `build_direct_panel`'s `target_baseline`
+# feature (Tier B2), which reuses the exact same weights/renormalization
+# vectorized straight off the panel's own already-computed
+# `seasonal_lag_{7,14,21,28}` columns instead of a second hist_df lookup.
+BASELINE_LAGS = (7, 14, 21, 28)
+BASELINE_WEIGHTS = np.array([4.0, 3.0, 2.0, 1.0])
+
+
+def _baseline_weights(variant: str) -> np.ndarray | None:
+    if variant not in BASELINE_VARIANTS:
+        raise ValueError(
+            f"Unknown baseline_variant={variant!r}; expected one of "
+            f"{sorted(BASELINE_VARIANTS)}"
+        )
+    if variant == "weighted_4321":
+        return np.array([4.0, 3.0, 2.0, 1.0], dtype=float)
+    if variant == "weighted_8421":
+        return np.array([8.0, 4.0, 2.0, 1.0], dtype=float)
+    if variant == "lag7":
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+    return None
+
+
+def _weighted_baseline(
+    lag_matrix: np.ndarray,
+    variant: str = "weighted_4321",
+) -> np.ndarray:
+    """Row-wise NaN-aware same-weekday baseline.
+
+    ``weighted_4321`` is the C0 default. C1 can compare a pure lag-7
+    baseline, a more recent-heavy 8:4:2:1 average, and a robust weekday
+    median. Missing lags never force an otherwise usable row to be dropped.
+    """
+    matrix = np.asarray(lag_matrix, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[1] != len(BASELINE_LAGS):
+        raise ValueError(
+            f"lag_matrix must have {len(BASELINE_LAGS)} columns in BASELINE_LAGS order"
+        )
+    observed = np.isfinite(matrix)
+    if variant == "weekday_median":
+        result = np.full(len(matrix), np.nan, dtype=float)
+        valid = observed.any(axis=1)
+        if valid.any():
+            result[valid] = np.nanmedian(matrix[valid], axis=1)
+        return result
+
+    weights = _baseline_weights(variant)
+    numerator = np.nansum(matrix * weights, axis=1)
+    denominator = (observed * weights).sum(axis=1)
+    return np.divide(
+        numerator, denominator,
+        out=np.full(len(matrix), np.nan, dtype=float),
+        where=denominator > 0,
+    )
+
+
+def compute_baseline(
+    target_df: pd.DataFrame,
+    hist_df: pd.DataFrame,
+    baseline_variant: str = "weighted_4321",
+) -> np.ndarray:
+    """Availability-aware same-weekday baseline using observed history only."""
+    available = hist_df["ProductAvailable"].fillna(False)
+    qty_available = hist_df["Quantity"].where(available)
+    lookup = pd.Series(
+        qty_available.to_numpy(),
+        index=pd.MultiIndex.from_frame(hist_df[["ProductId", "DateKey"]]),
+    )
+
+    lag_matrix = np.full((len(target_df), len(BASELINE_LAGS)), np.nan)
+    for j, lag in enumerate(BASELINE_LAGS):
+        keys = list(zip(
+            target_df["ProductId"],
+            target_df["DateKey"] - pd.Timedelta(days=lag),
+        ))
+        lag_matrix[:, j] = [lookup.get(k, np.nan) for k in keys]
+
+    return _weighted_baseline(lag_matrix, baseline_variant)
+
+
+def _availability_state(df: pd.DataFrame) -> pd.DataFrame:
+    """Return explicit observed/available/unavailable/gap state columns."""
+    state = pd.DataFrame(index=df.index)
+    if "is_gap_filled" in df.columns:
+        gap = df["is_gap_filled"].astype("boolean").fillna(False).astype(bool)
+    else:
+        gap = pd.Series(False, index=df.index)
+    product_available = df["ProductAvailable"].astype("boolean")
+    observed = ~gap
+    available = observed & product_available.fillna(False).astype(bool)
+    unavailable = observed & product_available.eq(False).fillna(False).astype(bool)
+    state["_is_gap"] = gap.astype(float)
+    state["_is_observed"] = observed.astype(float)
+    state["_is_available"] = available.astype(float)
+    state["_is_unavailable"] = unavailable.astype(float)
+    state["qty_available"] = pd.to_numeric(
+        df["Quantity"], errors="coerce"
+    ).where(available)
+    return state
+
+
+def _window_state_features(
+    df: pd.DataFrame,
+    windows: tuple,
+    *,
+    include_current: bool,
+) -> pd.DataFrame:
+    """Compute availability-aware rolling features with explicit states."""
+    state = _availability_state(df)
+    work = pd.concat([df[["ProductId", "DateKey"]].reset_index(drop=True),
+                      state.reset_index(drop=True)], axis=1)
+    qty_group = work.groupby("ProductId")["qty_available"]
+    observed_group = work.groupby("ProductId")["_is_observed"]
+    unavailable_group = work.groupby("ProductId")["_is_unavailable"]
+    gap_group = work.groupby("ProductId")["_is_gap"]
+    offset = 0 if include_current else 1
+    row_num = work.groupby("ProductId").cumcount() + (1 if include_current else 0)
+    out = work[["ProductId", "DateKey"]].copy()
+    out["qty_available"] = work["qty_available"]
+
+    def rolled(group, window, method, *, fill_std=False):
+        def apply(series):
+            base = series if offset == 0 else series.shift(offset)
+            result = getattr(base.rolling(window, min_periods=1), method)()
+            return result.fillna(0.0) if fill_std else result
+        return group.transform(apply)
+
+    for w in windows:
+        out[f"qty_roll_mean_{w}"] = rolled(qty_group, w, "mean")
+        out[f"qty_roll_std_{w}"] = rolled(qty_group, w, "std", fill_std=True)
+        out[f"qty_roll_median_{w}"] = rolled(qty_group, w, "median")
+        qty_count = rolled(qty_group, w, "count")
+        observed_count = rolled(observed_group, w, "sum")
+        unavailable_count = rolled(unavailable_group, w, "sum")
+        gap_count = rolled(gap_group, w, "sum")
+        denominator = np.minimum(row_num, w).clip(lower=1).astype(float)
+        out[f"qty_available_count_{w}"] = qty_count
+        out[f"observed_count_{w}"] = observed_count
+        out[f"unavailable_count_{w}"] = unavailable_count
+        out[f"calendar_gap_count_{w}"] = gap_count
+        out[f"available_observation_rate_{w}"] = qty_count / denominator
+        out[f"observed_rate_{w}"] = observed_count / denominator
+        out[f"unavailable_rate_{w}"] = unavailable_count / denominator
+        out[f"calendar_gap_rate_{w}"] = gap_count / denominator
+        out[f"stockout_rate_{w}"] = out[f"unavailable_rate_{w}"]
+    return out
+
+
+def add_train_lags(
+    df: pd.DataFrame,
+    windows: tuple = CFG.lag_windows,
+    *,
+    baseline_variant: str = "weighted_4321",
+) -> pd.DataFrame:
+    """Target-row history features computed strictly from prior days.
+
+    Calendar gaps and observed-unavailable rows are now represented
+    separately.  Only observed-and-available quantities enter demand rolling
+    statistics; ``stockout_rate`` is an alias of the explicit unavailable
+    rate rather than a mixture of stockouts and unknown calendar gaps.
+    """
+    df = df.sort_values(["ProductId", "DateKey"]).reset_index(drop=True).copy()
+    history = _window_state_features(df, windows, include_current=False)
+    for col in history.columns:
+        if col not in {"ProductId", "DateKey"}:
+            df[col] = history[col].to_numpy()
+    df["baseline"] = compute_baseline(
+        df, df, baseline_variant=baseline_variant
+    )
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Direct multi-horizon panel: both contenders forecast the full seven-day
+# horizon from an observed origin. Incumbent feature values are lookups into
+# already-observed history or target-date covariates, never prior predictions.
+# ---------------------------------------------------------------------------
+RECENT_POINT_LAGS = (0, 1, 2, 6, 7)
+# BASELINE_LAGS first, so `target_baseline` below can always read
+# seasonal_lag_{7,14,21,28} straight off the columns this computes for
+# every horizon -- weekly-seasonal lags plus 3 yearly-seasonal lags.
+ANNUAL_LAG_DAYS = (364, 365, 371)
+SEASONAL_LAG_DAYS = BASELINE_LAGS + ANNUAL_LAG_DAYS
+ANNUAL_LAG_MISSING_FEATURES = [
+    f"seasonal_lag_{lag}_missing" for lag in ANNUAL_LAG_DAYS
+]
+ORIGIN_LIFECYCLE_FEATURES = ["days_since_last_available", "ever_available_before"]
+
+# Columns whose VALUE must be shifted forward from the target row (the two
+# campaign category codes included, so the panel reflects whatever
+# campaign is active ON the target date) -- used only by `build_direct_panel`
+# itself. "Future-known" because the task's own test_data.parquet already
+# supplies these for the real forecast week -- an assumption this panel
+# inherits, not one it introduces.
+TARGET_COVARIATE_COLUMNS = STATIC_NUMERIC_FEATURES + ["campaign_idx_web", "campaign_idx_app"]
+
+
+def target_numeric_feature_names(cfg: Config = CFG) -> list[str]:
+    features = list(STATIC_NUMERIC_FEATURES)
+    if cfg.enable_trend_features:
+        features += TREND_TARGET_FEATURES
+    if c2_group_enabled(cfg, "price"):
+        features += PRICE_TARGET_FEATURES
+    if c2_group_enabled(cfg, "campaign"):
+        features += CAMPAIGN_SEMANTIC_FEATURES
+    if c2_group_enabled(cfg, "market"):
+        features += MARKET_TARGET_FEATURES
+    if c2_group_enabled(cfg, "event"):
+        features += EVENT_TARGET_FEATURES
+    return features
+
+
+def target_covariate_columns(cfg: Config = CFG) -> list[str]:
+    return target_numeric_feature_names(cfg) + [
+        "campaign_idx_web", "campaign_idx_app"
+    ]
+
+
+def direct_panel_feature_names(cfg: Config = CFG) -> list[str]:
+    """Full numeric feature schema for `build_direct_panel`'s output:
+    target-date covariates + origin-relative rolling stats (from
+    `add_train_lags`, just relative to whichever row is the origin here) +
+    origin-relative point lags + target-relative seasonal lags + horizon
+    itself. Deliberately uses `STATIC_NUMERIC_FEATURES`, not the wider
+    `TARGET_COVARIATE_COLUMNS` -- the two campaign category codes get
+    separate categorical (`TREE_CATEGORICAL_COLUMNS`) / embedding
+    treatment instead of being counted as plain numeric features (mirrors
+    how product/campaign indices were always excluded from the old
+    recursive pipeline's `feature_columns`); including them here too would
+    hand tree models the same column twice under two different roles.
+    `target_baseline` (Tier B2) is the weighted same-weekday baseline for
+    the target date itself -- see `build_direct_panel`."""
+    trend_origin = TREND_ORIGIN_FEATURES if cfg.enable_trend_features else []
+    trend_seasonal = TREND_SEASONAL_FEATURES if cfg.enable_trend_features else []
+    c2_origin: list[str] = []
+    c2_panel: list[str] = []
+    if c2_group_enabled(cfg, "price"):
+        c2_panel += PRICE_PANEL_FEATURES
+    if c2_group_enabled(cfg, "lifecycle"):
+        c2_origin += LIFECYCLE_ORIGIN_FEATURES
+    if c2_group_enabled(cfg, "market"):
+        c2_origin += MARKET_ORIGIN_FEATURES
+    return (target_numeric_feature_names(cfg) + lag_feature_names(cfg.lag_windows)
+            + ORIGIN_LIFECYCLE_FEATURES
+            + [f"qty_lag_{lag}" for lag in RECENT_POINT_LAGS]
+            + trend_origin + c2_origin
+            + (CHANNEL_HISTORY_FEATURES if cfg.enable_channel_history_features else [])
+            + [f"seasonal_lag_{lag}" for lag in SEASONAL_LAG_DAYS]
+            + ANNUAL_LAG_MISSING_FEATURES
+            + trend_seasonal + c2_panel
+            + ["target_baseline_missing", "target_baseline", "horizon"])
+
+
+def _rolling_log_slope(values: np.ndarray) -> float:
+    """Least-squares slope of log1p demand over observed positions only."""
+    arr = np.asarray(values, dtype=float)
+    observed = np.isfinite(arr) & (arr >= 0.0)
+    if observed.sum() < 2:
+        return np.nan
+    x = np.arange(len(arr), dtype=float)[observed]
+    y = np.log1p(arr[observed])
+    x_centered = x - x.mean()
+    denominator = float(np.dot(x_centered, x_centered))
+    if denominator <= 0.0:
+        return np.nan
+    return float(np.dot(x_centered, y - y.mean()) / denominator)
+
+
+def _safe_log_ratio_values(left, right) -> np.ndarray:
+    left_arr = pd.to_numeric(pd.Series(left), errors="coerce").to_numpy(dtype=float)
+    right_arr = pd.to_numeric(pd.Series(right), errors="coerce").to_numpy(dtype=float)
+    valid = (
+        np.isfinite(left_arr) & np.isfinite(right_arr)
+        & (left_arr >= 0.0) & (right_arr >= 0.0)
+    )
+    result = np.full(len(left_arr), np.nan, dtype=float)
+    result[valid] = np.log1p(left_arr[valid]) - np.log1p(right_arr[valid])
+    return result
+
+
+def build_origin_state_features(feature_df: pd.DataFrame, cfg: Config = CFG) -> pd.DataFrame:
+    """Build features known at the end of each origin day."""
+    df = feature_df.sort_values(["ProductId", "DateKey"]).reset_index(drop=True).copy()
+    state = _window_state_features(df, cfg.lag_windows, include_current=True)
+    out = state.drop(columns=["qty_available"]).copy()
+    qty_group = state.groupby("ProductId")["qty_available"]
+    for lag in RECENT_POINT_LAGS:
+        out[f"qty_lag_{lag}"] = qty_group.shift(lag)
+
+    if cfg.enable_channel_history_features:
+        # Channel-state features use only observations available by the origin.
+        # Unavailable/gap rows are excluded consistently with total-demand
+        # rolling features. Recursive synthetic rows are marked available and
+        # carry the model-predicted split, so the same contract remains valid
+        # beyond horizon one.
+        availability = _availability_state(df)
+        valid = availability["_is_available"].astype(bool)
+        app = pd.to_numeric(
+            df.get("QuantityApp", pd.Series(np.nan, index=df.index)),
+            errors="coerce",
+        ).where(valid)
+        web = pd.to_numeric(
+            df.get("QuantityWeb", pd.Series(np.nan, index=df.index)),
+            errors="coerce",
+        ).where(valid)
+        total = app + web
+        share = pd.Series(
+            np.divide(
+                app.to_numpy(dtype=float),
+                total.to_numpy(dtype=float),
+                out=np.full(len(df), np.nan, dtype=float),
+                where=np.isfinite(total.to_numpy(dtype=float))
+                & (total.to_numpy(dtype=float) > 0.0),
+            ),
+            index=df.index,
+        )
+        product = df["ProductId"]
+        share_group = share.groupby(product, sort=False)
+        app_group = app.groupby(product, sort=False)
+        web_group = web.groupby(product, sort=False)
+        total_group = total.groupby(product, sort=False)
+        out["app_share_lag_0"] = share
+        out["app_share_lag_7"] = share_group.shift(7)
+
+        share_roll = {}
+        for window in (7, 28):
+            app_sum = app_group.transform(
+                lambda series, w=window: series.rolling(w, min_periods=1).sum()
+            )
+            total_sum = total_group.transform(
+                lambda series, w=window: series.rolling(w, min_periods=1).sum()
+            )
+            share_roll[window] = np.divide(
+                app_sum.to_numpy(dtype=float),
+                total_sum.to_numpy(dtype=float),
+                out=np.full(len(df), np.nan, dtype=float),
+                where=np.isfinite(total_sum.to_numpy(dtype=float))
+                & (total_sum.to_numpy(dtype=float) > 0.0),
+            )
+            out[f"app_share_roll_{window}"] = share_roll[window]
+            out[f"app_qty_roll_mean_{window}"] = app_group.transform(
+                lambda series, w=window: series.rolling(w, min_periods=1).mean()
+            )
+            out[f"web_qty_roll_mean_{window}"] = web_group.transform(
+                lambda series, w=window: series.rolling(w, min_periods=1).mean()
+            )
+        out["app_share_recent_long_delta"] = share_roll[7] - share_roll[28]
+        out["app_share_observed_count_28"] = share_group.transform(
+            lambda series: series.rolling(28, min_periods=1).count()
+        )
+
+    if c2_group_enabled(cfg, "price"):
+        price_group = df.groupby("ProductId", sort=False)
+        out["_origin_price_lag0"] = pd.to_numeric(df["price"], errors="coerce")
+        out["_origin_price_lag7"] = price_group["price"].shift(7)
+        out["_origin_price_median28"] = price_group["price"].transform(
+            lambda series: series.rolling(28, min_periods=1).median()
+        )
+        out["_origin_effective_price_web_median28"] = price_group[
+            "effective_price_web"
+        ].transform(lambda series: series.rolling(28, min_periods=1).median())
+        out["_origin_effective_price_app_median28"] = price_group[
+            "effective_price_app"
+        ].transform(lambda series: series.rolling(28, min_periods=1).median())
+
+    if cfg.enable_trend_features:
+        def log_ratio(left: pd.Series, right: pd.Series) -> np.ndarray:
+            left_arr = pd.to_numeric(left, errors="coerce").to_numpy(dtype=float)
+            right_arr = pd.to_numeric(right, errors="coerce").to_numpy(dtype=float)
+            valid = (
+                np.isfinite(left_arr) & np.isfinite(right_arr)
+                & (left_arr >= 0.0) & (right_arr >= 0.0)
+            )
+            result = np.full(len(out), np.nan, dtype=float)
+            result[valid] = np.log1p(left_arr[valid]) - np.log1p(right_arr[valid])
+            return result
+
+        if 7 in cfg.lag_windows and 28 in cfg.lag_windows:
+            out["trend_log_ratio_mean_7_28"] = log_ratio(
+                out["qty_roll_mean_7"], out["qty_roll_mean_28"]
+            )
+            out["trend_log_ratio_lag0_28"] = log_ratio(
+                out["qty_lag_0"], out["qty_roll_mean_28"]
+            )
+        else:
+            out["trend_log_ratio_mean_7_28"] = np.nan
+            out["trend_log_ratio_lag0_28"] = np.nan
+        if 14 in cfg.lag_windows and 28 in cfg.lag_windows:
+            out["trend_log_ratio_mean_14_28"] = log_ratio(
+                out["qty_roll_mean_14"], out["qty_roll_mean_28"]
+            )
+        else:
+            out["trend_log_ratio_mean_14_28"] = np.nan
+
+        # Short and medium log-demand slopes expose direction of travel, not
+        # merely the recent/long level ratio. Missing calendar/availability
+        # states are ignored while their original positions remain in x.
+        for window in (7, 28):
+            out[f"trend_log_slope_{window}"] = qty_group.transform(
+                lambda series, w=window: series.rolling(
+                    w, min_periods=2
+                ).apply(_rolling_log_slope, raw=True)
+            )
+
+    availability = _availability_state(df)
+    available_bool = availability["_is_available"].astype(bool)
+    observed_bool = availability["_is_observed"].astype(bool)
+    unavailable_bool = availability["_is_unavailable"].astype(bool)
+    gap_bool = availability["_is_gap"].astype(bool)
+
+    available_date = df["DateKey"].where(available_bool)
+    last_available = available_date.groupby(df["ProductId"]).ffill()
+    out["days_since_last_available"] = (
+        df["DateKey"] - last_available
+    ).dt.days.astype(float)
+    out["ever_available_before"] = last_available.notna().astype(float)
+
+    if c2_group_enabled(cfg, "lifecycle"):
+        observed_date = df["DateKey"].where(observed_bool)
+        last_observed = observed_date.groupby(df["ProductId"]).ffill()
+        out["current_is_available"] = available_bool.astype(float)
+        out["current_is_calendar_gap"] = gap_bool.astype(float)
+        out["days_since_last_observed"] = (
+            df["DateKey"] - last_observed
+        ).dt.days.astype(float)
+        out["history_observed_days"] = observed_bool.astype(float).groupby(
+            df["ProductId"]
+        ).cumsum()
+        out["history_available_days"] = available_bool.astype(float).groupby(
+            df["ProductId"]
+        ).cumsum()
+        out["consecutive_unavailable_days"] = unavailable_bool.astype(float).groupby(
+            [df["ProductId"], (~unavailable_bool).groupby(df["ProductId"]).cumsum()]
+        ).cumsum()
+        previous_unavailable = (
+            unavailable_bool.groupby(df["ProductId"]).shift(1)
+            .astype("boolean").fillna(False).astype(bool)
+        )
+        out["recently_reavailable"] = (
+            available_bool & previous_unavailable.astype(bool)
+        ).astype(float)
+
+    if c2_group_enabled(cfg, "market"):
+        market_work = pd.DataFrame({
+            "DateKey": df["DateKey"],
+            "qty_available": state["qty_available"],
+            "is_available": availability["_is_available"],
+        })
+        market = market_work.groupby("DateKey", sort=True).agg(
+            market_total_qty=("qty_available", lambda x: x.sum(min_count=1)),
+            market_available_product_count=("is_available", "sum"),
+        ).sort_index()
+        market["market_mean_qty_per_available"] = np.divide(
+            market["market_total_qty"],
+            market["market_available_product_count"],
+        )
+        market["market_total_qty_lag0"] = market["market_total_qty"]
+        market["market_total_qty_lag1"] = market["market_total_qty"].shift(1)
+        market["market_total_qty_lag7"] = market["market_total_qty"].shift(7)
+        market["market_roll_mean_7"] = market["market_total_qty"].rolling(
+            7, min_periods=1
+        ).mean()
+        market["market_roll_mean_28"] = market["market_total_qty"].rolling(
+            28, min_periods=1
+        ).mean()
+        market["market_recent_long_log_ratio"] = _safe_log_ratio_values(
+            market["market_roll_mean_7"], market["market_roll_mean_28"]
+        )
+        market["market_mean_qty_per_available_lag0"] = market[
+            "market_mean_qty_per_available"
+        ]
+        market["market_available_product_count_lag0"] = market[
+            "market_available_product_count"
+        ]
+        for column in MARKET_ORIGIN_FEATURES:
+            if column == "market_total_excl_product_lag0":
+                continue
+            out[column] = df["DateKey"].map(market[column])
+        own_qty = state["qty_available"].fillna(0.0).to_numpy(dtype=float)
+        out["market_total_excl_product_lag0"] = (
+            out["market_total_qty_lag0"].to_numpy(dtype=float) - own_qty
+        )
+
+    return out
+
+
+def build_direct_panel(train_feat: pd.DataFrame, horizons, cfg: Config = CFG,
+                        future_covariates: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Stack (ForecastOrigin x Horizon x ProductId) into a direct panel.
+
+    Origin-state features use observations through the origin itself. Target
+    covariates and seasonal lags are aligned to each target date. The horizon
+    guard guarantees every target-relative seasonal lookup remains at or
+    before the origin.
+    """
+    horizons = tuple(int(h) for h in horizons)
+    if not horizons:
+        raise ValueError("At least one forecast horizon is required")
+    if min(horizons) < 1:
+        raise ValueError("Forecast horizons must be positive")
+    if max(horizons) > min(SEASONAL_LAG_DAYS):
+        raise ValueError("Target-relative seasonal lags would require future observations")
+    if max(horizons) > cfg.horizon:
+        raise ValueError("Requested horizon exceeds Config.horizon and the NN horizon embedding domain")
+    for name, frame in (("train_feat", train_feat), ("future_covariates", future_covariates)):
+        if frame is not None and frame.duplicated(["ProductId", "DateKey"]).any():
+            raise ValueError(f"{name} contains duplicate ProductId/DateKey keys")
+
+    train_feat = train_feat.copy()
+    if "QuantityApp" not in train_feat.columns:
+        train_feat["QuantityApp"] = train_feat.get("Quantity", np.nan)
+    if "QuantityWeb" not in train_feat.columns:
+        train_feat["QuantityWeb"] = 0.0
+    train_feat = train_feat.sort_values(["ProductId", "DateKey"]).reset_index(drop=True)
+    origin_index = pd.MultiIndex.from_frame(train_feat[["ProductId", "DateKey"]])
+    combined = train_feat.copy()
+    if future_covariates is not None:
+        future_covariates = future_covariates.copy()
+        for col in ("Quantity", "QuantityApp", "QuantityWeb", "ProductAvailable"):
+            if col not in future_covariates.columns:
+                future_covariates[col] = np.nan
+        covariate_columns = target_covariate_columns(cfg)
+        keep = [
+            "ProductId", "DateKey", "Quantity", "QuantityApp", "QuantityWeb",
+            "ProductAvailable",
+        ] + covariate_columns
+        combined = pd.concat([train_feat, future_covariates[keep]], ignore_index=True, sort=False)
+    combined = combined.sort_values(["ProductId", "DateKey"]).reset_index(drop=True)
+    if "qty_available" not in combined.columns:
+        combined["qty_available"] = combined["Quantity"].where(combined["ProductAvailable"].fillna(False))
+    else:
+        # Future rows arrive without lag engineering; derive their value safely.
+        missing = combined["qty_available"].isna()
+        combined.loc[missing, "qty_available"] = combined.loc[missing, "Quantity"].where(
+            combined.loc[missing, "ProductAvailable"].fillna(False))
+    g = combined.groupby("ProductId")
+    origin = build_origin_state_features(combined, cfg)
+
+    frames = []
+    for h in horizons:
+        panel_h = origin.copy()
+        panel_h["horizon"] = h
+        covariate_columns = target_covariate_columns(cfg)
+        target_cols = [
+            "DateKey", "Quantity", "QuantityApp", "QuantityWeb",
+            "ProductAvailable",
+        ] + covariate_columns
+        target = g[target_cols].shift(-h)
+        panel_h["TargetDateKey"] = target["DateKey"]
+        panel_h["target"] = target["Quantity"]
+        panel_h["target_app"] = target["QuantityApp"]
+        panel_h["target_web"] = target["QuantityWeb"]
+        panel_h["TargetProductAvailable"] = target["ProductAvailable"]
+        for col in covariate_columns:
+            panel_h[col] = target[col]
+
+        if c2_group_enabled(cfg, "price"):
+            panel_h["price_log_ratio_vs_origin"] = _safe_log_ratio_values(
+                panel_h["price"], panel_h["_origin_price_lag0"]
+            )
+            panel_h["price_log_ratio_vs_lag7"] = _safe_log_ratio_values(
+                panel_h["price"], panel_h["_origin_price_lag7"]
+            )
+            panel_h["price_log_ratio_vs_median28"] = _safe_log_ratio_values(
+                panel_h["price"], panel_h["_origin_price_median28"]
+            )
+            panel_h["effective_price_web_log_ratio_vs_median28"] = (
+                _safe_log_ratio_values(
+                    panel_h["effective_price_web"],
+                    panel_h["_origin_effective_price_web_median28"],
+                )
+            )
+            panel_h["effective_price_app_log_ratio_vs_median28"] = (
+                _safe_log_ratio_values(
+                    panel_h["effective_price_app"],
+                    panel_h["_origin_effective_price_app_median28"],
+                )
+            )
+
+        for lag in SEASONAL_LAG_DAYS:
+            panel_h[f"seasonal_lag_{lag}"] = g["qty_available"].shift(lag - h)
+        for lag in ANNUAL_LAG_DAYS:
+            panel_h[f"seasonal_lag_{lag}_missing"] = (
+                ~np.isfinite(panel_h[f"seasonal_lag_{lag}"].to_numpy(dtype=float))
+            ).astype(float)
+        lag_matrix = np.column_stack([
+            panel_h[f"seasonal_lag_{lag}"].to_numpy(dtype=float)
+            for lag in BASELINE_LAGS
+        ])
+        raw_baseline = _weighted_baseline(lag_matrix, cfg.baseline_variant)
+        panel_h["target_baseline_missing"] = (~np.isfinite(raw_baseline)).astype(float)
+        fallback = panel_h[f"qty_roll_median_{cfg.lag_windows[0]}"].to_numpy(dtype=float)
+        fallback = np.where(
+            np.isfinite(fallback), fallback,
+            panel_h[f"qty_roll_mean_{cfg.lag_windows[0]}"].to_numpy(dtype=float),
+        )
+        fallback = np.where(
+            np.isfinite(fallback), fallback,
+            panel_h["qty_lag_0"].to_numpy(dtype=float),
+        )
+        fallback = np.where(np.isfinite(fallback), fallback, 0.0)
+        panel_h["target_baseline"] = np.where(
+            np.isfinite(raw_baseline), raw_baseline, fallback
+        )
+        if cfg.enable_trend_features:
+            annual_matrix = np.column_stack([
+                panel_h[f"seasonal_lag_{lag}"].to_numpy(dtype=float)
+                for lag in ANNUAL_LAG_DAYS
+            ])
+            annual_observed = np.isfinite(annual_matrix).any(axis=1)
+            annual_reference = np.full(len(panel_h), np.nan, dtype=float)
+            if annual_observed.any():
+                annual_reference[annual_observed] = np.nanmedian(
+                    annual_matrix[annual_observed], axis=1
+                )
+            panel_h["annual_reference"] = annual_reference
+            panel_h["annual_reference_missing"] = (~annual_observed).astype(float)
+            baseline_values = panel_h["target_baseline"].to_numpy(dtype=float)
+            valid_ratio = (
+                np.isfinite(baseline_values) & np.isfinite(annual_reference)
+                & (baseline_values >= 0.0) & (annual_reference >= 0.0)
+            )
+            ratio = np.full(len(panel_h), np.nan, dtype=float)
+            ratio[valid_ratio] = (
+                np.log1p(baseline_values[valid_ratio])
+                - np.log1p(annual_reference[valid_ratio])
+            )
+            panel_h["trend_log_ratio_baseline_annual"] = ratio
+        frames.append(panel_h)
+
+    panel = pd.concat(frames, ignore_index=True).rename(columns={"DateKey": "OriginDateKey"})
+    panel["product_idx"] = panel["ProductId"] - 1
+    panel_index = pd.MultiIndex.from_arrays([panel["ProductId"], panel["OriginDateKey"]])
+    return panel[panel_index.isin(origin_index)].reset_index(drop=True)
+
+
+def recency_sample_weights(
+    target_dates: pd.Series,
+    cutoff: pd.Timestamp,
+    half_life_days: float | None,
+) -> np.ndarray:
+    """Return mean-one exponential time-decay weights.
+
+    Normalising to mean one preserves the overall loss scale and therefore
+    avoids silently changing the effective learning rate when C1 enables
+    recency weighting.
+    """
+    dates = pd.to_datetime(target_dates)
+    age_days = (pd.Timestamp(cutoff) - dates).dt.days.to_numpy(dtype=float)
+    age_days = np.clip(age_days, 0.0, None)
+    if half_life_days is None:
+        return np.ones(len(dates), dtype=float)
+    if not np.isfinite(half_life_days) or half_life_days <= 0:
+        raise ValueError("recency_half_life_days must be positive or None")
+    weights = np.exp2(-age_days / float(half_life_days))
+    mean_weight = float(np.mean(weights)) if len(weights) else 1.0
+    if not np.isfinite(mean_weight) or mean_weight <= 0:
+        raise ValueError("Recency weighting produced an invalid mean weight")
+    return weights / mean_weight
+
+
+def select_trainable_panel_rows(
+    panel: pd.DataFrame,
+    *,
+    cutoff: pd.Timestamp | None = None,
+    available_only: bool = True,
+    cfg: Config = CFG,
+) -> pd.DataFrame:
+    """Select supervised rows without requiring every feature to be present.
+
+    Numeric feature missingness is handled by each model's fitted
+    preprocessing/native missing-value support.  This prevents annual lags
+    from silently deleting young-product and early-history observations.
+    """
+    mask = panel["target"].notna() & np.isfinite(
+        pd.to_numeric(panel["target"], errors="coerce")
+    )
+    mask &= panel["target_baseline"].notna() & np.isfinite(
+        pd.to_numeric(panel["target_baseline"], errors="coerce")
+    )
+    effective_cutoff = (
+        pd.Timestamp(cutoff)
+        if cutoff is not None
+        else pd.to_datetime(panel.loc[mask, "TargetDateKey"]).max()
+    )
+    if pd.isna(effective_cutoff):
+        selected = panel.loc[mask].reset_index(drop=True).copy()
+        selected["sample_weight"] = np.ones(len(selected), dtype=float)
+        return selected
+    if cutoff is not None:
+        mask &= panel["TargetDateKey"].le(effective_cutoff)
+    if cfg.training_window_days is not None:
+        if cfg.training_window_days <= 0:
+            raise ValueError("training_window_days must be positive or None")
+        earliest = effective_cutoff - pd.Timedelta(
+            days=int(cfg.training_window_days) - 1
+        )
+        mask &= panel["TargetDateKey"].ge(earliest)
+    if available_only:
+        mask &= (
+            panel["TargetProductAvailable"]
+            .astype("boolean")
+            .fillna(False)
+            .astype(bool)
+        )
+    selected = panel.loc[mask].reset_index(drop=True).copy()
+    selected["sample_weight"] = recency_sample_weights(
+        selected["TargetDateKey"],
+        effective_cutoff,
+        cfg.recency_half_life_days,
+    )
+    return selected
+
+
+KNOWN_FUTURE_RAW_COLUMNS = [
+    "ProductId", "DateKey", "CampaignSubTypeWeb", "CampaignSubTypeApp",
+    "DiscountValueWebRelative", "DiscountValueAppRelative", "IsSaleOrPromo",
+    "PriceLocalVat",
+]
+
+
+# ---------------------------------------------------------------------------
+# Model registry/metadata & metrics
+# ---------------------------------------------------------------------------
+CHALLENGE_MODELS = ("NeuralNet", "Chronos2")
+MODEL_ORDER = list(CHALLENGE_MODELS)
+MODEL_STRATEGY_SUPPORT = {
+    # The incumbent specification was frozen as a direct seven-horizon model.
+    # Chronos-2 is also evaluated through its native direct multi-step API.
+    "NeuralNet": {"direct"},
+    "Chronos2": {"direct"},
+}
+
+
+def model_supports_strategy(model: str, strategy: str) -> bool:
+    return strategy in MODEL_STRATEGY_SUPPORT.get(model, set())
+
+
+def prediction_columns_for_strategy(
+    pred_columns: dict[str, str], strategy: str
+) -> dict[str, str]:
+    return {
+        model: column
+        for model, column in pred_columns.items()
+        if model_supports_strategy(model, strategy)
+    }
+
+
+MODEL_META = {
+    "NeuralNet": {
+        "label": "Best NN",
+        "short": "Frozen direct NeuralNet",
+        "color": "#EE4C2C",
+        "kind": "incumbent",
+        "source_url": "https://pytorch.org",
+        "blurb": (
+            "The strongest specification developed in the original project: "
+            "a direct seven-horizon PyTorch network that learns a guarded "
+            "log-residual correction around a same-weekday seasonal anchor."
+        ),
+    },
+    "Chronos2": {
+        "label": "Chronos-2",
+        "short": "Amazon foundation model",
+        "color": "#FF9900",
+        "kind": "challenger",
+        "source_url": "https://huggingface.co/amazon/chronos-2",
+        "blurb": (
+            "Amazon's pretrained time-series foundation model, evaluated "
+            "zero-shot on exactly the same rolling origins, products, target "
+            "dates, scoring population and future-known retail information."
+        ),
+    },
+}
+
+
+def model_slug(name: str) -> str:
+    """Return the stable URL key used by the two contender pages."""
+    return name.lower().replace(" ", "")
+
+
+MODEL_SLUGS = {name: model_slug(name) for name in MODEL_ORDER}
+SLUG_TO_MODEL = {slug: name for name, slug in MODEL_SLUGS.items()}
+
+
+def order_models(df: pd.DataFrame, column: str = "model") -> pd.DataFrame:
+    """Sort challenge rows with the incumbent first and Chronos-2 second.
+
+    Unexpected names are appended only for defensive compatibility with old
+    persisted artifacts; the active challenge pipeline never exports them.
+    """
+    present = set(df[column].unique())
+    order = [m for m in MODEL_ORDER if m in present] + sorted(present - set(MODEL_ORDER))
+    original_columns = list(df.columns)
+    result = df.set_index(column).loc[order].reset_index()
+    return result[original_columns]
+
+
+def compute_metrics(y_true, y_pred) -> dict:
+    """MAE/RMSE stay scale-dependent; MAPE is kept only as a supplementary
+    number since clipping its denominator at 1 makes it unstable near-zero.
+    WAPE (sum|error|/sum|actual|) is scale-aware and the primary metric for
+    comparing models across products of very different volume. sMAPE/RMSLE
+    add robustness/percentage views; Bias/BiasRatio expose systematic over-
+    or under-forecasting that MAE/RMSE hide (two models can share an MAE
+    while one is unbiased and the other consistently over-forecasts).
+
+    Calling this once per (fold, model) gives a "mean-fold" (macro) metric
+    when averaged across folds by the caller; computing it once over all
+    folds' pooled rows instead gives a "global" (micro) metric -- the two
+    are not interchangeable and callers should label whichever they use.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+    y_true, y_pred = y_true[mask], y_pred[mask]
+
+    error = y_pred - y_true
+    abs_error = np.abs(error)
+    sum_abs_actual = float(np.sum(np.abs(y_true)))
+
+    mae = float(np.mean(abs_error))
+    rmse = float(np.sqrt(np.mean(error ** 2)))
+    mape = float(np.mean(abs_error / np.clip(y_true, 1, None)) * 100)
+    wape = float(np.sum(abs_error) / sum_abs_actual) if sum_abs_actual > 0 else float("nan")
+    smape = float(np.mean(2.0 * abs_error / (np.abs(y_true) + np.abs(y_pred) + 1e-8)))
+    rmsle = float(np.sqrt(np.mean((np.log1p(np.clip(y_pred, 0, None)) - np.log1p(np.clip(y_true, 0, None))) ** 2)))
+    bias = float(np.mean(error))
+    bias_ratio = float(np.sum(error) / sum_abs_actual) if sum_abs_actual > 0 else float("nan")
+
+    return {
+        "MAE": mae, "RMSE": rmse, "MAPE": mape, "WAPE": wape, "sMAPE": smape,
+        "RMSLE": rmsle, "Bias": bias, "BiasRatio": bias_ratio, "n": int(mask.sum()),
+    }

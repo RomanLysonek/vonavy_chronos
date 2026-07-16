@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title id="page-title">Model — vonavy_chronos</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css?v=chronos-1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <div class="promo-bar">
+    <a class="promo-dataset-link" data-dataset-link href="/dataset">30 Product Time Series</a>
+    <span id="promo-strategy">7-Day Direct Forecast</span>
+    <span id="promo-model-count">2 Contenders</span>
+    <a class="promo-evaluation-link" data-evaluation-link href="/evaluation">Same Walk-Forward Test</a>
+  </div>
+
+  <header class="hero">
+    <div class="hero-top">
+      <div class="brand">
+        <span class="brand-logo">VONAVY_CHRONOS</span>
+        <span class="brand-tagline">Foundation Model Challenge</span>
+      </div>
+      <div class="hero-title-block"><h1>Contender Analysis</h1></div>
+    </div>
+    <nav class="site-nav" id="site-nav"></nav>
+  </header>
+
+  <header class="model-hero" id="model-hero" style="--mc:#0a0a0a">
+    <span class="model-badge" id="hero-badge">—</span>
+    <h1 id="hero-title">Loading…</h1>
+    <p class="blurb" id="hero-blurb"></p>
+    <a class="source-link" id="hero-source" href="#" target="_blank" rel="noopener" hidden>Official documentation ↗</a>
+  </header>
+
+  <main id="app">
+    <section class="pending-banner" id="model-pending-banner" hidden>
+      <strong>This contender has not been executed in the checked-in snapshot.</strong>
+      <span>The integration and evaluation contract are ready; run the pipeline to populate metrics and final forecasts.</span>
+    </section>
+
+    <section class="panel model-method-panel">
+      <div class="panel-header">
+        <h2 id="method-title">How this contender works here</h2>
+        <p id="method-intro"></p>
+      </div>
+      <div class="definition-list model-method-list" id="model-method-list"></div>
+    </section>
+
+    <section class="panel" id="lineage-panel" hidden>
+      <div class="panel-header">
+        <h2>How the incumbent was frozen</h2>
+        <p>Development decisions only; historical contender scores are intentionally not reproduced.</p>
+      </div>
+      <div class="lineage-grid" id="model-lineage-grid"></div>
+    </section>
+
+    <section class="kpi-grid" id="kpi-grid"></section>
+
+    <section class="panel-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Recent benchmark folds</h2>
+          <p>Conditional demand · common rows · direct seven-day forecasts</p>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-folds"></canvas></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Head-to-head context</h2>
+          <p>Exactly where this contender stands against the other one</p>
+        </div>
+        <div class="definition-list" id="head-to-head-list"></div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header row">
+        <div>
+          <h2>Product explorer</h2>
+          <p>History and this contender's final seven-day forecast</p>
+        </div>
+        <div class="controls product-explorer-controls">
+          <label class="checkbox-control"><input id="model-product-history-toggle" type="checkbox" checked /> Show history</label>
+          <select id="product-select"></select>
+        </div>
+      </div>
+      <div class="chart-wrap tall"><canvas id="chart-product"></canvas></div>
+    </section>
+  </main>
+
+  <footer><p id="footer-method-text">Loading challenge method…</p></footer>
+  <script>window.STATIC_DASHBOARD = true;</script>
+  <script src="./common.js?v=chronos-1"></script>
+  <script src="./model.js?v=chronos-1"></script>
+</body>
+</html>

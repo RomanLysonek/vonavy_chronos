@@ -1,0 +1,3 @@
+# Optional zero-shot foundation-model challenger.
+# Pinned because the adapter targets the Chronos 2.3 predict_df contract.
+chronos-forecasting==2.3.1

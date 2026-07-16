@@ -1,0 +1,162 @@
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from framework import CHALLENGE_MODELS, MODEL_ORDER, MODEL_STRATEGY_SUPPORT, Config
+from pipeline import (
+    ForecastStrategy,
+    RuntimeOptions,
+    SubmissionModel,
+    export_results_json,
+    parse_args,
+    resolve_strategies,
+)
+
+
+def _summary(models):
+    return pd.DataFrame([
+        {
+            "model": model,
+            "strategy": "direct",
+            "evaluation_regime": "conditional",
+            "comparison_population": "common",
+            "aggregation": "global",
+            "n_folds": 2,
+            "n_scored": 4,
+            "WAPE": 0.2 + index / 100,
+            "MAE": 2.0 + index,
+            "RMSE": 3.0 + index,
+            "Bias": 0.1,
+            "BiasRatio": 0.01,
+        }
+        for index, model in enumerate(models)
+    ])
+
+
+def _raw_frames():
+    history_dates = pd.date_range("2025-01-01", periods=5, freq="D")
+    future_dates = pd.date_range("2025-01-06", periods=2, freq="D")
+    train = pd.DataFrame({
+        "ProductId": [1] * len(history_dates),
+        "DateKey": history_dates,
+        "Quantity": np.arange(1, len(history_dates) + 1, dtype=float),
+    })
+    test = pd.DataFrame({
+        "ProductId": [1] * len(future_dates),
+        "DateKey": future_dates,
+    })
+    return train, test
+
+
+def test_registry_and_cli_define_exactly_two_direct_contenders():
+    assert CHALLENGE_MODELS == ("NeuralNet", "Chronos2")
+    assert MODEL_ORDER == ["NeuralNet", "Chronos2"]
+    assert set(MODEL_STRATEGY_SUPPORT) == set(CHALLENGE_MODELS)
+    assert all(MODEL_STRATEGY_SUPPORT[name] == {"direct"} for name in CHALLENGE_MODELS)
+    assert resolve_strategies(ForecastStrategy.DIRECT) == (ForecastStrategy.DIRECT,)
+    with pytest.raises(ValueError, match="only --forecast-strategy direct"):
+        resolve_strategies(ForecastStrategy.RECURSIVE)
+
+    options = parse_args([])
+    assert options.forecast_strategy is ForecastStrategy.DIRECT
+    assert options.submission_model is SubmissionModel.AUTO
+    assert options.chronos2 == "on"
+    with pytest.raises(SystemExit):
+        parse_args(["--forecast-strategy", "recursive"])
+
+
+def test_export_boundary_removes_every_legacy_model(tmp_path):
+    train, test = _raw_frames()
+    models = ["NeuralNet", "Chronos2", "XGBoost", "LightGBM", "MovingAvg28"]
+    summary = _summary(models)
+    cv = pd.DataFrame([
+        {"fold": 1, "model": model, "regime": "conditional", "WAPE": 0.2}
+        for model in models
+    ])
+    submission = test.copy()
+    submission["Quantity"] = [10, 11]
+    forecasts = {
+        "NeuralNet": np.array([10.0, 11.0]),
+        "Chronos2": np.array([9.0, 12.0]),
+        "XGBoost": np.array([999.0, 999.0]),
+    }
+    out = tmp_path / "results.json"
+    cfg = Config(output_dir=str(tmp_path), num_products=1, horizon=2)
+    payload = export_results_json(
+        train,
+        test,
+        submission,
+        forecasts,
+        cv,
+        cfg,
+        path=str(out),
+        dev_summary=summary,
+        benchmark_summary=summary,
+        runtime_options=RuntimeOptions(),
+        forecasts_by_strategy={"direct": forecasts},
+        cv_results_all=cv.assign(strategy="direct"),
+        strategy_by_horizon=summary.assign(horizon=1),
+        validation_strata_summary=summary.assign(validation_stratum="regular"),
+        test_aligned_scores=pd.DataFrame([
+            {"strategy": "direct", "model": model, "metric": "WAPE", "test_aligned_score": 0.2}
+            for model in models
+        ]),
+        prediction_diagnostics=pd.DataFrame([
+            {"model": model, "coverage": 1.0} for model in models
+        ]),
+        per_product_summary=pd.DataFrame([
+            {"model": model, "ProductId": 1, "WAPE": 0.2} for model in models
+        ]),
+        top_decile_summary=pd.DataFrame([
+            {"model": model, "WAPE": 0.2} for model in models
+        ]),
+        top_error_rows=pd.DataFrame([
+            {"model": model, "absolute_error": 1.0} for model in models
+        ]),
+        canonical_model="NeuralNet",
+    )
+
+    assert payload["schema_version"] == "vonavy-chronos-v1"
+    assert [model["key"] for model in payload["models"]] == list(CHALLENGE_MODELS)
+    assert set(payload["forecasts"]) == set(CHALLENGE_MODELS)
+    assert set(payload["forecasts_by_strategy"]["direct"]) == set(CHALLENGE_MODELS)
+    assert out.exists()
+
+    def assert_no_legacy(value):
+        if isinstance(value, dict):
+            if "model" in value:
+                assert value["model"] in CHALLENGE_MODELS
+            for child in value.values():
+                assert_no_legacy(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_no_legacy(child)
+
+    assert_no_legacy(payload)
+
+
+def test_checked_in_dashboard_snapshot_obeys_challenge_schema():
+    root = Path(__file__).resolve().parents[1]
+    data = json.loads((root / "outputs" / "results.json").read_text())
+    assert data["project"]["name"] == "vonavy_chronos"
+    assert data["project"]["status"] == "awaiting_chronos"
+    assert [model["key"] for model in data["models"]] == list(CHALLENGE_MODELS)
+    assert data["models"][0]["label"] == "Best NN"
+    assert data["models"][0]["available"] is True
+    assert data["models"][1]["available"] is False
+    assert set(data["forecasts"]) == {"NeuralNet"}
+
+
+def test_branding_and_local_port_are_frozen():
+    root = Path(__file__).resolve().parents[1]
+    server_source = (root / "webapp" / "server.py").read_text()
+    readme = (root / "README.md").read_text()
+
+    assert "Best NN vs Chronos-2" in server_source
+    assert "port=8998" in server_source
+    assert "http://127.0.0.1:8998" in readme
+    assert "Our Best" not in server_source + readme
+    assert "port=8999" not in server_source

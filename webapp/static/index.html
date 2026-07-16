@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vonavy_chronos — Best NN vs Chronos-2</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css?v=chronos-1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <div class="promo-bar">
+    <a class="promo-dataset-link" data-dataset-link href="/dataset">30 Product Time Series</a>
+    <span id="promo-strategy">7-Day Direct Forecast</span>
+    <span id="promo-model-count">2 Contenders</span>
+    <a class="promo-evaluation-link" data-evaluation-link href="/evaluation">Same Walk-Forward Test</a>
+  </div>
+
+  <header class="hero challenge-hero">
+    <div class="hero-top">
+      <div class="brand">
+        <span class="brand-logo">VONAVY_CHRONOS</span>
+        <span class="brand-tagline">Foundation Model Challenge</span>
+      </div>
+      <div class="hero-title-block">
+        <h1>Best NN vs Chronos-2</h1>
+        <p>One frozen incumbent. One zero-shot foundation model. No irrelevant leaderboard.</p>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-nav"></nav>
+  </header>
+
+  <main id="app">
+    <section class="selection-band challenge-status-band">
+      <div>
+        <span class="selection-eyebrow">Development-selected winner</span>
+        <strong id="challenge-winner">Loading…</strong>
+        <p id="challenge-status-copy">Both contenders are evaluated on identical origins and rows.</p>
+      </div>
+      <div class="controls">
+        <label for="regime-select">Scoring lens</label>
+        <select id="regime-select">
+          <option value="conditional">Conditional demand</option>
+          <option value="realized">Realized sales</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="pending-banner" id="pending-banner" hidden>
+      <strong>Chronos-2 has not been executed in the checked-in snapshot.</strong>
+      <span>Run the challenge pipeline to populate the second contender and complete the head-to-head.</span>
+    </section>
+
+    <section class="kpi-grid" id="kpi-grid"></section>
+
+    <section class="panel">
+      <div class="panel-header row">
+        <div>
+          <h2>The head-to-head</h2>
+          <p id="comparison-context">Recent-benchmark OOF · common purchasable product-days · global aggregation</p>
+        </div>
+        <span class="winner-badge" id="benchmark-badge">—</span>
+      </div>
+      <div class="challenge-columns" id="challenge-columns"></div>
+    </section>
+
+    <section class="panel-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Recent benchmark</h2>
+          <p>Lower is better; WAPE is the primary decision metric</p>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-comparison"></canvas></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>What makes this fair</h2>
+          <p>The comparison contract is fixed before either score is inspected</p>
+        </div>
+        <div class="definition-list" id="fairness-list"></div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>How we reached “Best NN”</h2>
+        <p>Only the decisions that define the frozen incumbent; historical model scores are deliberately omitted.</p>
+      </div>
+      <div class="lineage-grid" id="lineage-grid"></div>
+    </section>
+
+    <section class="panel-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Fold-by-fold WAPE</h2>
+          <p>Recent benchmark; each fold uses the same rows for both contenders</p>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="fold-table">
+            <thead><tr><th>Fold</th><th>Best NN</th><th>Chronos-2</th><th>Winner</th><th>Chronos Δ</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header row">
+          <div>
+            <h2>Error by horizon</h2>
+            <p>Does the foundation model improve or deteriorate as lead time grows?</p>
+          </div>
+          <select id="horizon-metric-select">
+            <option value="WAPE">WAPE</option>
+            <option value="MAE">MAE</option>
+            <option value="BiasRatio">Bias ratio</option>
+          </select>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-horizon"></canvas></div>
+      </section>
+    </section>
+
+    <section class="panel-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>High-volume product-days</h2>
+          <p>Top 10% of actual demand; where costly misses matter most</p>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="top-demand-table">
+            <thead><tr><th>Model</th><th>WAPE</th><th>MAE</th><th>Bias</th><th>n</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Per-product verdict</h2>
+          <p>Count of products won on recent-benchmark WAPE</p>
+        </div>
+        <div class="product-verdict" id="product-verdict"></div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header row">
+        <div>
+          <h2>Product explorer</h2>
+          <p>History and both final seven-day forecasts</p>
+        </div>
+        <div class="controls product-explorer-controls">
+          <label class="checkbox-control"><input id="product-history-toggle" type="checkbox" checked /> Show history</label>
+          <select id="product-select"></select>
+        </div>
+      </div>
+      <div class="product-model-legend" id="product-model-legend"></div>
+      <div class="chart-wrap tall"><canvas id="chart-product"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header row">
+        <div>
+          <h2>Selected forecast grid</h2>
+          <p id="submission-caption">Development-selected winner used for submission.csv</p>
+        </div>
+        <select id="forecast-grid-model-select"></select>
+      </div>
+      <div class="table-wrap tall" id="submission-table-wrap"></div>
+    </section>
+  </main>
+
+  <footer><p id="footer-method-text">Loading challenge method…</p></footer>
+  <script src="/static/common.js?v=chronos-1"></script>
+  <script src="/static/app.js?v=chronos-1"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Runtime logs and caches
+*.log
+outputs/checkpoints/
+.huggingface/
+
+# Generated heavyweight model artifacts
+outputs/*.parquet
+outputs/*.png
+
+# Keep the lightweight checked-in dashboard snapshot
+!outputs/results.json

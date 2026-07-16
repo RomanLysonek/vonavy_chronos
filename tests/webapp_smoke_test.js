@@ -1,0 +1,53 @@
+"use strict";
+
+const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+const { spawnSync } = require("child_process");
+
+const root = path.resolve(__dirname, "..");
+const staticDir = path.join(root, "webapp", "static");
+const docsDir = path.join(root, "docs");
+
+for (const name of ["common.js", "app.js", "model.js", "evaluation.js", "dataset.js"]) {
+  const result = spawnSync(process.execPath, ["--check", path.join(staticDir, name)], { encoding: "utf8" });
+  assert.strictEqual(result.status, 0, `${name} syntax check failed:\n${result.stderr}`);
+}
+
+const data = JSON.parse(fs.readFileSync(path.join(staticDir, "results.json"), "utf8"));
+assert.strictEqual(data.schema_version, "vonavy-chronos-v1");
+assert.deepStrictEqual(data.models.map((model) => model.key), ["NeuralNet", "Chronos2"]);
+assert.strictEqual(data.project.status, "awaiting_chronos");
+assert.deepStrictEqual(Object.keys(data.forecasts), ["NeuralNet"]);
+
+function assertNoLegacyModel(value) {
+  if (Array.isArray(value)) return value.forEach(assertNoLegacyModel);
+  if (!value || typeof value !== "object") return;
+  if (Object.prototype.hasOwnProperty.call(value, "model")) {
+    assert.ok(["NeuralNet", "Chronos2"].includes(value.model), `legacy model leaked: ${value.model}`);
+  }
+  Object.values(value).forEach(assertNoLegacyModel);
+}
+assertNoLegacyModel(data);
+
+const context = { window: {}, console };
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(staticDir, "common.js"), "utf8"), context);
+assert.strictEqual(vm.runInContext("CHALLENGE_MODELS.join(',')", context), "NeuralNet,Chronos2");
+assert.strictEqual(vm.runInContext("canonicalModel({selection:{canonical_model:'Chronos2'}})", context), "Chronos2");
+assert.strictEqual(vm.runInContext("summaryRows({benchmark_summary_all:[{model:'NeuralNet',strategy:'direct',evaluation_regime:'conditional',comparison_population:'common',aggregation:'global',WAPE:0.2},{model:'XGBoost',strategy:'direct',evaluation_regime:'conditional',comparison_population:'common',aggregation:'global',WAPE:0.1}]},{source:'benchmark'}).length", context), 1);
+
+const index = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
+assert.ok(index.includes("Best NN vs Chronos-2"));
+assert.ok(index.includes("No irrelevant leaderboard"));
+for (const legacy of ["XGBoost", "LightGBM", "Dynamic Ridge", "Moving Average", "Seasonal Naive", "Ensemble"]) {
+  assert.ok(!index.includes(legacy), `legacy contender visible in index.html: ${legacy}`);
+}
+
+const docsIndex = fs.readFileSync(path.join(docsDir, "index.html"), "utf8");
+assert.ok(docsIndex.includes("window.STATIC_DASHBOARD = true"));
+assert.ok(!docsIndex.includes('href="/static/'));
+assert.ok(!docsIndex.includes('src="/static/'));
+
+console.log("webapp challenge smoke checks passed");

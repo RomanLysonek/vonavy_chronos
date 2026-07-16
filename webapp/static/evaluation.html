@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Evaluation — vonavy_chronos</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css?v=chronos-1" />
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <div class="promo-bar">
+    <a class="promo-dataset-link" data-dataset-link href="/dataset">30 Product Time Series</a>
+    <span id="promo-strategy">7-Day Direct Forecast</span>
+    <span id="promo-model-count">2 Contenders</span>
+    <span>Leakage-Safe Head-to-Head</span>
+  </div>
+
+  <header class="hero">
+    <div class="hero-top">
+      <div class="brand">
+        <span class="brand-logo">VONAVY_CHRONOS</span>
+        <span class="brand-tagline">Foundation Model Challenge</span>
+      </div>
+      <div class="hero-title-block">
+        <h1>Evaluation Contract</h1>
+        <p>What is fixed, what selects the winner, and what is only confirmation.</p>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-nav"></nav>
+  </header>
+
+  <main id="app">
+    <section class="panel evaluation-lead">
+      <div class="panel-header"><h2>The central rule</h2></div>
+      <p class="lead-copy">Best NN and Chronos-2 must forecast the same product-date keys from the same information cutoff. WAPE is computed on one common population; a model cannot improve its score by silently dropping difficult rows.</p>
+    </section>
+
+    <section class="kpi-grid" id="evaluation-kpis"></section>
+
+    <section class="panel-grid">
+      <section class="panel">
+        <div class="panel-header"><h2>Development origins</h2><p>Used for model comparison and winner selection</p></div>
+        <div class="origin-list" id="development-origins"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Recent benchmark origins</h2><p>Held back as the closest pseudo-test confirmation</p></div>
+        <div class="origin-list" id="benchmark-origins"></div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>Scoring layers</h2><p>Each layer answers a different question; only one is primary.</p></div>
+      <div class="lineage-grid evaluation-grid">
+        <article class="lineage-card"><span class="lineage-index">01</span><h3>Primary population</h3><strong>Conditional demand</strong><p>Score only days when the product was available for purchase. Stockouts censor demand and are not treated as true zero demand.</p></article>
+        <article class="lineage-card"><span class="lineage-index">02</span><h3>Fair comparison</h3><strong>Common rows</strong><p>A row is scored only when the actual and both contender predictions are finite. Both models therefore receive identical denominators.</p></article>
+        <article class="lineage-card"><span class="lineage-index">03</span><h3>Primary metric</h3><strong>Global WAPE</strong><p>Sum of absolute errors divided by sum of actual demand. High-volume product-days receive proportionally appropriate weight.</p></article>
+        <article class="lineage-card"><span class="lineage-index">04</span><h3>Decision protocol</h3><strong>Development first</strong><p>The selected winner comes from development OOF. The recent benchmark reports confirmation or disagreement but does not retune the models.</p></article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>Test-aligned strata</h2><p>The January test week motivates a weighted development score without discarding broader stress periods.</p></div>
+      <div class="definition-list" id="strata-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>Leakage boundary</h2><p>Information allowed at each forecast origin</p></div>
+      <div class="definition-list">
+        <div class="definition-item"><strong>Observed history</strong><span>Quantity and availability up to and including the forecast origin.</span></div>
+        <div class="definition-item"><strong>Known future covariates</strong><span>Target-date calendar, campaign, discount and price information supplied in the test frame.</span></div>
+        <div class="definition-item"><strong>Forbidden future information</strong><span>Target quantities, future availability realization, and any lag or rolling value that would require post-origin demand.</span></div>
+        <div class="definition-item"><strong>Chronos-specific guard</strong><span>Stockouts and synthetic gaps are masked as missing history; future_df never receives quantities or realized availability.</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer><p id="footer-method-text">Loading challenge method…</p></footer>
+  <script src="/static/common.js?v=chronos-1"></script>
+  <script src="/static/evaluation.js?v=chronos-1"></script>
+</body>
+</html>
