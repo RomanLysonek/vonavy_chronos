@@ -22,6 +22,9 @@ assert.strictEqual(data.project.status, "complete");
 assert.deepStrictEqual(Object.keys(data.forecasts), ["NeuralNet", "Chronos2"]);
 assert.strictEqual(data.probabilistic_evaluation.status, "evaluated");
 assert.ok(data.provenance.run_id);
+assert.strictEqual(data.provenance.verification.status, "incomplete");
+assert.strictEqual(data.publication_provenance.status, "authenticated");
+assert.ok(data.publication_provenance.publication_id);
 
 function assertNoLegacyModel(value) {
   if (Array.isArray(value)) return value.forEach(assertNoLegacyModel);
@@ -49,7 +52,7 @@ assert.ok(index.includes('<span class="brand-tagline">/ Interview Assignment</sp
 assert.ok(!index.includes("VONAVY_CHRONOS"));
 assert.ok(!index.includes("Foundation Model Challenge"));
 assert.ok(index.includes("Sanity baseline"));
-assert.ok(index.includes("Published provenance"));
+assert.ok(index.includes("Evidence provenance"));
 for (const [label, href] of [
   ["Classical Forecasting", "https://romanlysonek.github.io/vonava_predikce/"],
   ["Anomaly Research", "https://romanlysonek.github.io/vonave_anomalie/"],

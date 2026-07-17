@@ -47,7 +47,9 @@ The publication profile pins:
 - `amazon/chronos-2` revision `29ec3766d36d6f73f0696f85560a422f50e8498c`;
 - the bounded profile in `ml/chronos2_profiles.json`.
 
-Every publication records the exact source revision/tree, dirty state, input/config/lock hashes, canonical command, package/model revisions, resolved device/runtime/hardware, UTC generation time, run ID, and output hashes. Unknown runtime fields are labelled rather than guessed.
+Model-run and static-publication provenance are separate. The model record names the inference source, inputs, configuration, dependency/model pins and runtime. A content-addressed publication manifest separately binds the later UI/static source and committed outputs.
+
+The current run `941bbd3a1dd0cf23` has **incomplete checkpoint provenance**. Its immutable run record did not bind checkpoint source/input/dependency/device identities or checkpoint hashes before `--resume` execution. The local execution log reports zero reused folds and 19 trained folds, but that observation was not authenticated at run time and is not promoted into a fully reproducible claim. Future checkpoint signatures bind those identities and record checkpoint hashes.
 
 The core `uv.lock` intentionally excludes Chronos. Static Pages requires no inference environment, and FastAPI is an optional local preview.
 
@@ -100,11 +102,12 @@ uv run python ml/publish_static.py
 uv run python ml/publish_static.py --check
 ```
 
-Rebuild presentation JSON from retained run artifacts without training:
+Rebuild presentation JSON from retained, hash-authenticated run artifacts without training:
 
 ```bash
 uv run python ml/export_results.py
 uv run python ml/export_results.py --check
+uv run python ml/finalize_publication.py --check
 ```
 
 ## Outputs

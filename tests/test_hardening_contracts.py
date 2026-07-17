@@ -9,12 +9,17 @@ from dashboard_artifacts import (
     summarize_probabilistic_oof,
     summarize_sanity_baseline,
 )
-from export_results import export_from_artifacts
+from export_results import REQUIRED_MODEL_ARTIFACTS, export_from_artifacts
+from finalize_publication import checkpoint_metadata
 from pipeline import (
     OOF_MODEL_COLUMNS,
     RuntimeOptions,
+    _fold_checkpoint_signature,
+    build_checkpoint_run_identity,
+    reserve_final_audit,
     validate_final_audit_policy,
 )
+from framework import Config
 from provenance import sha256_file, sha256_json
 from static_site import check_static_dashboard, publish_static_dashboard
 
@@ -78,13 +83,57 @@ def test_final_audit_publication_is_single_use(tmp_path):
     marker = tmp_path / "consumed.json"
     options = RuntimeOptions(run_kind="publication", include_final_audit=True)
     validate_final_audit_policy(options, str(marker))
-    marker.write_text("{}")
-    with pytest.raises(RuntimeError, match="already consumed"):
-        validate_final_audit_policy(options, str(marker))
-    validate_final_audit_policy(
-        RuntimeOptions(run_kind="reproduction", include_final_audit=True),
-        str(marker),
+    reservation = reserve_final_audit(
+        options,
+        run_id="publication-1",
+        source_revision="abc",
+        generated_at="2026-07-17T00:00:00+00:00",
+        marker_path=str(marker),
     )
+    reserved = json.loads(marker.read_text())
+    assert reserved["status"] == "consumed"
+    assert reserved["fresh_evidence_claim_consumed"] is True
+    with pytest.raises(RuntimeError, match="already reserved or consumed"):
+        reserve_final_audit(
+            options,
+            run_id="publication-2",
+            source_revision="def",
+            generated_at="2026-07-17T00:01:00+00:00",
+            marker_path=str(marker),
+        )
+    before_reproduction = marker.read_bytes()
+    reproduced = reserve_final_audit(
+        RuntimeOptions(run_kind="reproduction", include_final_audit=True),
+        run_id="reproduction-1",
+        source_revision="def",
+        generated_at="2026-07-17T00:02:00+00:00",
+        marker_path=str(marker),
+    )
+    assert reproduced["fresh"] is False
+    assert marker.read_bytes() == before_reproduction
+    assert reservation["mode"] == "publication"
+    assert json.loads(marker.read_text())["status"] == "consumed"
+
+
+def test_final_audit_crash_reservation_remains_consumed(tmp_path):
+    marker = tmp_path / "crashed.json"
+    options = RuntimeOptions(run_kind="publication", include_final_audit=True)
+    reserve_final_audit(
+        options,
+        run_id="crashed-publication",
+        source_revision="abc",
+        generated_at="2026-07-17T00:00:00+00:00",
+        marker_path=str(marker),
+    )
+    with pytest.raises(RuntimeError, match="already reserved or consumed"):
+        reserve_final_audit(
+            options,
+            run_id="second-publication",
+            source_revision="abc",
+            generated_at="2026-07-17T00:01:00+00:00",
+            marker_path=str(marker),
+        )
+    assert json.loads(marker.read_text())["status"] == "consumed"
 
 
 def test_hash_helpers_are_stable(tmp_path):
@@ -92,6 +141,66 @@ def test_hash_helpers_are_stable(tmp_path):
     artifact.write_text("chronos\n")
     assert len(sha256_file(artifact)) == 64
     assert sha256_json({"b": 2, "a": 1}) == sha256_json({"a": 1, "b": 2})
+
+
+def test_checkpoint_signature_binds_run_identity():
+    cfg = Config()
+    origin = pd.Timestamp("2025-01-01")
+    first = _fold_checkpoint_signature(
+        cfg,
+        "direct",
+        "development",
+        origin,
+        {"source_tree": "tree-a", "input": "hash-a", "device": "cpu"},
+    )
+    second = _fold_checkpoint_signature(
+        cfg,
+        "direct",
+        "development",
+        origin,
+        {"source_tree": "tree-b", "input": "hash-a", "device": "cpu"},
+    )
+    assert first != second
+    assert first["run_identity"]["source_tree"] == "tree-a"
+
+
+def test_checkpoint_run_identity_covers_source_inputs_dependencies_and_backends():
+    identity = build_checkpoint_run_identity(
+        {
+            "source": {"tree": "tree"},
+            "inputs_sha256": {"train": "train-hash", "test": "test-hash"},
+            "lock": {"sha256": "lock-hash"},
+            "chronos": {
+                "package": {"value": "2.3.1"},
+                "model_revision": "model-sha",
+            },
+            "runtime": {"torch": {"device": "mps", "package": {"value": "2.13.0"}}},
+        },
+        {"resolved_device": "mps"},
+        {"training_backend": "device_resident"},
+    )
+    assert identity["source_tree"] == "tree"
+    assert identity["inputs_sha256"]["train"] == "train-hash"
+    assert identity["dependency_lock"]["sha256"] == "lock-hash"
+    assert identity["chronos"]["model_revision"] == "model-sha"
+    assert identity["resolved_device"] == "mps"
+    assert identity["nn_training_backend"] == "device_resident"
+
+
+def test_publication_finalizer_preserves_authenticated_checkpoint_metadata(tmp_path):
+    authenticated = {
+        "status": "authenticated",
+        "reused_folds": 2,
+        "trained_folds": 3,
+        "files_sha256": {"outputs/checkpoints/fold.pkl": "hash"},
+    }
+    verification, checkpoint_provenance = checkpoint_metadata(
+        tmp_path,
+        {"run_id": "future-run", "checkpoints": authenticated},
+    )
+    assert verification["status"] == "complete"
+    assert verification["checkpoint_identity_at_run"] is True
+    assert checkpoint_provenance == authenticated
 
 
 def test_static_publisher_round_trip(tmp_path):
@@ -150,6 +259,9 @@ def test_artifact_only_exporter_end_to_end(tmp_path):
         }
         for index, model in enumerate(("NeuralNet", "Chronos2"))
     ]).to_csv(out / "cv_results.csv", index=False)
+    pd.read_csv(out / "cv_results.csv").assign(strategy="direct").to_csv(
+        out / "cv_results_all.csv", index=False
+    )
 
     final_rows = []
     for model, predictions in {
@@ -170,6 +282,79 @@ def test_artifact_only_exporter_end_to_end(tmp_path):
     pd.DataFrame(final_rows).to_parquet(
         out / "final_forecasts.parquet", index=False
     )
+    pd.DataFrame({"origin": ["2025-01-05"], "actual": [5.0]}).to_parquet(
+        out / "oof_predictions.parquet", index=False
+    )
+    summary.assign(horizon=1, origin_type="development").to_csv(
+        out / "strategy_by_horizon.csv", index=False
+    )
+    summary.assign(
+        validation_stratum="regular", origin_type="development"
+    ).to_csv(out / "validation_strata_summary.csv", index=False)
+    pd.DataFrame([
+        {
+            "strategy": "direct",
+            "model": model,
+            "metric": "WAPE",
+            "test_aligned_score": 0.1 + index / 10,
+        }
+        for index, model in enumerate(("NeuralNet", "Chronos2"))
+    ]).to_csv(out / "test_aligned_scores.csv", index=False)
+    pd.DataFrame([
+        {"origin_type": "development", "strategy": "direct", "model": model}
+        for model in ("NeuralNet", "Chronos2")
+    ]).to_csv(out / "prediction_diagnostics.csv", index=False)
+    pd.DataFrame([
+        {
+            "origin_type": "development",
+            "strategy": "direct",
+            "origin": "2025-01-05",
+            "model": model,
+        }
+        for model in ("NeuralNet", "Chronos2")
+    ]).to_csv(out / "prediction_diagnostics_by_origin.csv", index=False)
+    (out / "channel_share_summary.csv").write_text("\n")
+    summary.assign(ProductId=1, origin_type="development").to_csv(
+        out / "per_product_summary.csv", index=False
+    )
+    summary.assign(origin_type="development", quantile=0.9).to_csv(
+        out / "top_decile_summary.csv", index=False
+    )
+    pd.DataFrame([
+        {
+            "origin": "2025-01-05",
+            "DateKey": "2025-01-06",
+            "model": model,
+            "absolute_error": 1.0,
+        }
+        for model in ("NeuralNet", "Chronos2")
+    ]).to_csv(out / "top_error_rows.csv", index=False)
+    pd.DataFrame([
+        {
+            "origin_type": "development",
+            "strategy": "direct",
+            "estimator": estimator,
+            "WAPE": 0.1,
+        }
+        for estimator in ("NeuralNet", "Chronos2", "SeasonalWeekdayNaive")
+    ]).to_csv(out / "sanity_baseline.csv", index=False)
+    pd.DataFrame([{
+        "origin_type": "development",
+        "strategy": "direct",
+        "model": "Chronos2",
+        "interval_coverage": 0.8,
+    }]).to_csv(out / "probabilistic_summary.csv", index=False)
+    pd.DataFrame([
+        {
+            "scheme": "frozen_test_aligned",
+            "strategy": "direct",
+            "model": model,
+            "test_aligned_score": 0.1 + index / 10,
+            "winner": "NeuralNet",
+        }
+        for index, model in enumerate(("NeuralNet", "Chronos2"))
+    ]).to_csv(out / "weight_sensitivity.csv", index=False)
+    summary.to_csv(out / "final_audit_summary.csv", index=False)
 
     provenance = {
         "schema_version": "chronos-run-v1",
@@ -183,12 +368,27 @@ def test_artifact_only_exporter_end_to_end(tmp_path):
         },
         "runtime": {"os": "test", "machine": "test", "torch": {"device": "cpu"}},
         "run_manifest": "outputs/runs/fixture-run.json",
-        "output_hashes": {
-            "status": "recorded_in_run_manifest",
-            "manifest": "outputs/runs/fixture-run.json",
+    }
+    model_manifest = {
+        **provenance,
+        "inputs_sha256": {
+            "data/train_data.parquet": sha256_file(data_dir / "train_data.parquet"),
+            "data/test_data.parquet": sha256_file(data_dir / "test_data.parquet"),
+        },
+        "model_artifact_sha256": {
+            relative: sha256_file(tmp_path / relative)
+            for relative in REQUIRED_MODEL_ARTIFACTS
         },
     }
-    (out / "runs" / "fixture-run.json").write_text(json.dumps(provenance))
+    model_manifest_path = out / "runs" / "fixture-run.json"
+    model_manifest_path.write_text(json.dumps(model_manifest))
+    publication_provenance = {
+        "schema_version": "chronos-publication-v1",
+        "status": "authenticated",
+        "publication_id": "fixture-publication",
+        "manifest": "outputs/publications/fixture-publication.json",
+    }
+    (out / "publications").mkdir()
     existing = {
         "config": {
             "selection_metric": "WAPE",
@@ -202,9 +402,21 @@ def test_artifact_only_exporter_end_to_end(tmp_path):
         },
         "selection": {"canonical_model": "NeuralNet"},
         "provenance": provenance,
+        "publication_provenance": publication_provenance,
         "evaluation_origins": [],
     }
-    (out / "results.json").write_text(json.dumps(existing))
+    results_path = out / "results.json"
+    results_path.write_text(json.dumps(existing))
+    publication_manifest = {
+        **publication_provenance,
+        "artifact_sha256": {
+            "outputs/results.json": sha256_file(results_path),
+            "outputs/runs/fixture-run.json": sha256_file(model_manifest_path),
+        },
+    }
+    (out / "publications" / "fixture-publication.json").write_text(
+        json.dumps(publication_manifest)
+    )
 
     payload = export_from_artifacts(
         tmp_path,
@@ -215,3 +427,22 @@ def test_artifact_only_exporter_end_to_end(tmp_path):
     assert payload["project"]["status"] == "complete"
     assert set(payload["forecasts"]) == {"NeuralNet", "Chronos2"}
     assert payload["generated_at"] == provenance["generated_at"]
+
+    dev_path = out / "dev_summary.csv"
+    original_dev = dev_path.read_bytes()
+    dev_path.write_bytes(original_dev + b"\n")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        export_from_artifacts(
+            tmp_path,
+            destination=tmp_path / "tampered.json",
+            publish_static=False,
+        )
+    dev_path.write_bytes(original_dev)
+
+    (out / "probabilistic_summary.csv").unlink()
+    with pytest.raises(FileNotFoundError, match="missing"):
+        export_from_artifacts(
+            tmp_path,
+            destination=tmp_path / "missing.json",
+            publish_static=False,
+        )

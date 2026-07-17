@@ -139,12 +139,11 @@ def test_chronos2_cli_and_registry_are_direct_only():
         "--chronos2-device", "cpu",
         "--chronos2-profile", "target-only",
         "--chronos2-batch-size", "24",
-        "--submission-model", "Chronos2",
     ])
     cfg = Config()
     runtime = configure_chronos2_runtime(cfg, options)
 
-    assert options.submission_model is SubmissionModel.CHRONOS2
+    assert options.submission_model is SubmissionModel.AUTO
     assert runtime["enabled"] is True
     assert cfg.chronos2_context_length is None
     assert cfg.chronos2_batch_size == 24

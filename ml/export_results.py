@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from provenance import model_provenance_summary, sha256_file
 from static_site import publish_static_dashboard
 from pipeline import (
     Config,
@@ -24,6 +25,29 @@ from pipeline import (
     load_raw,
 )
 
+REQUIRED_MODEL_ARTIFACTS = (
+    "outputs/submission.csv",
+    "outputs/cv_results.csv",
+    "outputs/cv_results_all.csv",
+    "outputs/dev_summary.csv",
+    "outputs/benchmark_summary.csv",
+    "outputs/final_forecasts.parquet",
+    "outputs/oof_predictions.parquet",
+    "outputs/strategy_by_horizon.csv",
+    "outputs/validation_strata_summary.csv",
+    "outputs/test_aligned_scores.csv",
+    "outputs/prediction_diagnostics.csv",
+    "outputs/prediction_diagnostics_by_origin.csv",
+    "outputs/channel_share_summary.csv",
+    "outputs/per_product_summary.csv",
+    "outputs/top_decile_summary.csv",
+    "outputs/top_error_rows.csv",
+    "outputs/sanity_baseline.csv",
+    "outputs/probabilistic_summary.csv",
+    "outputs/weight_sensitivity.csv",
+    "outputs/final_audit_summary.csv",
+)
+
 
 def _read_json(path: Path) -> dict:
     try:
@@ -37,7 +61,13 @@ def _read_json(path: Path) -> dict:
     return payload
 
 
-def _read_csv(path: Path, *, required: bool = False, **kwargs) -> pd.DataFrame:
+def _read_csv(
+    path: Path,
+    *,
+    required: bool = False,
+    allow_empty: bool = False,
+    **kwargs,
+) -> pd.DataFrame:
     if not path.exists():
         if required:
             raise FileNotFoundError(f"Required artifact is missing: {path}")
@@ -49,7 +79,7 @@ def _read_csv(path: Path, *, required: bool = False, **kwargs) -> pd.DataFrame:
     try:
         return pd.read_csv(path, **kwargs)
     except pd.errors.EmptyDataError:
-        if required:
+        if required and not allow_empty:
             raise ValueError(f"Required CSV artifact is empty: {path}") from None
         return pd.DataFrame()
 
@@ -58,13 +88,8 @@ def _runtime_options(results: dict) -> RuntimeOptions:
     config = results.get("config")
     if not isinstance(config, dict):
         raise ValueError("Existing results.json has no configuration object")
-    canonical = results.get("selection", {}).get("canonical_model")
-    try:
-        submission_model = SubmissionModel(canonical)
-    except ValueError as exc:
-        raise ValueError(f"Invalid canonical model in results.json: {canonical!r}") from exc
     return RuntimeOptions(
-        submission_model=submission_model,
+        submission_model=SubmissionModel.AUTO,
         selection_metric=str(config.get("selection_metric", "WAPE")),
         selection_protocol=str(config.get("selection_protocol", "test-aligned")),
         chronos2_profile=str(config.get("chronos2_profile", "published")),
@@ -77,21 +102,91 @@ def _runtime_options(results: dict) -> RuntimeOptions:
     )
 
 
-def _load_manifest(root: Path, results: dict) -> tuple[dict, dict]:
+def _manifest_path(root: Path, relative: str, directory: str) -> Path:
+    candidate = (root / relative).resolve()
+    allowed = (root / "outputs" / directory).resolve()
+    if not candidate.is_relative_to(allowed):
+        raise ValueError(f"Manifest path escapes outputs/{directory}: {relative}")
+    return candidate
+
+
+def _verify_hash(path: Path, expected: str, label: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"Required authenticated artifact is missing: {label}")
+    actual = sha256_file(path)
+    if actual != expected:
+        raise ValueError(
+            f"Authenticated artifact hash mismatch for {label}: "
+            f"expected {expected}, got {actual}"
+        )
+
+
+def _load_manifests(root: Path, results: dict) -> tuple[dict, dict, dict, dict]:
     provenance = results.get("provenance")
     if not isinstance(provenance, dict):
         raise ValueError("Existing results.json has no immutable provenance")
     relative = provenance.get("run_manifest")
     if not relative:
         raise ValueError("Existing results.json does not identify its run manifest")
-    manifest = _read_json(root / relative)
+    publication_provenance = results.get("publication_provenance")
+    if not isinstance(publication_provenance, dict):
+        raise ValueError("Existing results.json has no publication provenance")
+    publication_relative = publication_provenance.get("manifest")
+    if not publication_relative:
+        raise ValueError("Existing results.json does not identify its publication manifest")
+    publication_path = _manifest_path(root, publication_relative, "publications")
+    publication_manifest = _read_json(publication_path)
+    if publication_manifest.get("publication_id") != publication_provenance.get(
+        "publication_id"
+    ):
+        raise ValueError("Publication manifest and results.json have different IDs")
+    publication_hashes = publication_manifest.get("artifact_sha256")
+    if not isinstance(publication_hashes, dict):
+        raise ValueError("Publication manifest has no artifact hash map")
+    results_label = "outputs/results.json"
+    if results_label not in publication_hashes:
+        raise ValueError("Publication manifest does not authenticate outputs/results.json")
+    _verify_hash(root / results_label, publication_hashes[results_label], results_label)
+
+    manifest_path = _manifest_path(root, relative, "runs")
+    manifest_label = str(manifest_path.relative_to(root))
+    if manifest_label not in publication_hashes:
+        raise ValueError("Publication manifest does not authenticate the model run manifest")
+    _verify_hash(manifest_path, publication_hashes[manifest_label], manifest_label)
+    manifest = _read_json(manifest_path)
     if manifest.get("run_id") != provenance.get("run_id"):
         raise ValueError("Run manifest and results.json have different run IDs")
-    published_provenance = {
-        key: value for key, value in manifest.items() if key != "output_sha256"
-    }
-    published_provenance["output_hashes"] = provenance.get("output_hashes")
-    return manifest, published_provenance
+    model_hashes = manifest.get("model_artifact_sha256") or manifest.get("output_sha256")
+    if not isinstance(model_hashes, dict):
+        raise ValueError("Model run manifest has no artifact hash map")
+    for relative_path in REQUIRED_MODEL_ARTIFACTS:
+        expected = model_hashes.get(relative_path)
+        if not expected:
+            raise ValueError(
+                f"Model run manifest does not authenticate {relative_path}"
+            )
+        _verify_hash(root / relative_path, expected, relative_path)
+    input_hashes = manifest.get("inputs_sha256")
+    if not isinstance(input_hashes, dict):
+        raise ValueError("Model run manifest has no input hash map")
+    for relative_path in ("data/train_data.parquet", "data/test_data.parquet"):
+        expected = input_hashes.get(relative_path)
+        if not expected:
+            raise ValueError(f"Model run manifest does not authenticate {relative_path}")
+        _verify_hash(root / relative_path, expected, relative_path)
+
+    published_provenance = model_provenance_summary(
+        manifest,
+        manifest_path=relative,
+        manifest_sha256=sha256_file(manifest_path),
+        authenticated_artifact_count=len(REQUIRED_MODEL_ARTIFACTS) + 2,
+    )
+    return (
+        manifest,
+        published_provenance,
+        publication_manifest,
+        publication_provenance,
+    )
 
 
 def export_from_artifacts(
@@ -104,7 +199,7 @@ def export_from_artifacts(
     out = root / "outputs"
     existing_path = out / "results.json"
     existing = _read_json(existing_path)
-    _, provenance = _load_manifest(root, existing)
+    _, provenance, _, publication_provenance = _load_manifests(root, existing)
     options = _runtime_options(existing)
 
     cfg = Config(
@@ -126,17 +221,22 @@ def export_from_artifacts(
         out / "submission.csv", required=True, parse_dates=["DateKey"]
     )
     cv_results = _read_csv(out / "cv_results.csv", required=True)
-    cv_results_all = _read_csv(out / "cv_results_all.csv")
+    cv_results_all = _read_csv(out / "cv_results_all.csv", required=True)
     dev_summary = _read_csv(out / "dev_summary.csv", required=True)
     benchmark_summary = _read_csv(out / "benchmark_summary.csv", required=True)
     final_df = pd.read_parquet(out / "final_forecasts.parquet")
     final_df["DateKey"] = pd.to_datetime(final_df["DateKey"])
 
     canonical_strategy = "direct"
-    canonical_model = options.submission_model.value
-    if cv_results_all.empty:
-        cv_results_all = cv_results.assign(strategy=canonical_strategy)
-
+    canonical_model = str(existing.get("selection", {}).get("canonical_model"))
+    try:
+        parsed_canonical = SubmissionModel(canonical_model)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid canonical model in results.json: {canonical_model!r}"
+        ) from exc
+    if parsed_canonical is SubmissionModel.AUTO:
+        raise ValueError("Published canonical model cannot be auto")
     forecasts_by_strategy: dict[str, dict] = {}
     raw_forecasts: dict[str, dict] = {}
     for strategy, strategy_df in final_df.groupby("strategy"):
@@ -171,23 +271,51 @@ def export_from_artifacts(
         )
 
     frames = {
-        "strategy_by_horizon": _read_csv(out / "strategy_by_horizon.csv"),
-        "validation_strata_summary": _read_csv(out / "validation_strata_summary.csv"),
-        "test_aligned_scores": _read_csv(out / "test_aligned_scores.csv"),
-        "prediction_diagnostics": _read_csv(out / "prediction_diagnostics.csv"),
+        "strategy_by_horizon": _read_csv(
+            out / "strategy_by_horizon.csv", required=True
+        ),
+        "validation_strata_summary": _read_csv(
+            out / "validation_strata_summary.csv", required=True
+        ),
+        "test_aligned_scores": _read_csv(
+            out / "test_aligned_scores.csv", required=True
+        ),
+        "prediction_diagnostics": _read_csv(
+            out / "prediction_diagnostics.csv", required=True
+        ),
         "prediction_diagnostics_by_origin": _read_csv(
-            out / "prediction_diagnostics_by_origin.csv", parse_dates=["origin"]
+            out / "prediction_diagnostics_by_origin.csv",
+            required=True,
+            parse_dates=["origin"],
         ),
-        "channel_share_summary": _read_csv(out / "channel_share_summary.csv"),
-        "per_product_summary": _read_csv(out / "per_product_summary.csv"),
-        "top_decile_summary": _read_csv(out / "top_decile_summary.csv"),
+        "channel_share_summary": _read_csv(
+            out / "channel_share_summary.csv",
+            required=True,
+            allow_empty=True,
+        ),
+        "per_product_summary": _read_csv(
+            out / "per_product_summary.csv", required=True
+        ),
+        "top_decile_summary": _read_csv(
+            out / "top_decile_summary.csv", required=True
+        ),
         "top_error_rows": _read_csv(
-            out / "top_error_rows.csv", parse_dates=["origin", "DateKey"]
+            out / "top_error_rows.csv",
+            required=True,
+            parse_dates=["origin", "DateKey"],
         ),
-        "sanity_baseline": _read_csv(out / "sanity_baseline.csv"),
-        "probabilistic_summary": _read_csv(out / "probabilistic_summary.csv"),
-        "weight_sensitivity": _read_csv(out / "weight_sensitivity.csv"),
-        "audit_summary": _read_csv(out / "final_audit_summary.csv"),
+        "sanity_baseline": _read_csv(
+            out / "sanity_baseline.csv", required=True
+        ),
+        "probabilistic_summary": _read_csv(
+            out / "probabilistic_summary.csv", required=True
+        ),
+        "weight_sensitivity": _read_csv(
+            out / "weight_sensitivity.csv", required=True
+        ),
+        "audit_summary": _read_csv(
+            out / "final_audit_summary.csv", required=True
+        ),
     }
     destination_path = Path(destination) if destination else existing_path
     payload = export_results_json(
@@ -208,6 +336,7 @@ def export_from_artifacts(
         final_quantile_forecasts=_chronos_quantiles_to_json(final_df),
         origin_registry=existing.get("evaluation_origins", []),
         provenance=provenance,
+        publication_provenance=publication_provenance,
         **frames,
     )
     if publish_static:

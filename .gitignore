@@ -31,6 +31,8 @@ outputs/dashboard_manifest.json
 !outputs/final_audit_consumed.json
 !outputs/runs/
 !outputs/runs/*.json
+!outputs/publications/
+!outputs/publications/*.json
 
 # Keep the lightweight checked-in dashboard snapshot
 !outputs/results.json

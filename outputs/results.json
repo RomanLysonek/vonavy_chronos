@@ -35948,7 +35948,7 @@
     }
   ],
   "provenance": {
-    "schema_version": "chronos-run-v1",
+    "schema_version": "chronos-run-v2-migrated",
     "generated_at": "2026-07-17T15:03:09.381592+00:00",
     "run_kind": "publication",
     "source": {
@@ -36012,8 +36012,53 @@
     "run_id": "941bbd3a1dd0cf23",
     "run_manifest": "outputs/runs/941bbd3a1dd0cf23.json",
     "output_hashes": {
-      "status": "recorded_in_run_manifest",
-      "manifest": "outputs/runs/941bbd3a1dd0cf23.json"
+      "status": "post_run_migrated",
+      "scope": "model_artifacts",
+      "reason": "Artifact hashes authenticate the retained files now but were not all committed immutably at model-run completion."
+    },
+    "scope": "model_evidence",
+    "verification": {
+      "status": "incomplete",
+      "reason": "The run enabled --resume before checkpoint source/input/dependency/device identities and checkpoint hashes were bound into the immutable manifest. The local execution log reports zero reused folds and 19 trained folds, but that observation was not authenticated at run time.",
+      "pinned_components": {
+        "source_revision": true,
+        "input_hashes": true,
+        "dependency_lock_hash": true,
+        "chronos_package_and_model_revision": true
+      },
+      "checkpoint_identity_at_run": false
+    },
+    "checkpoint_provenance": {
+      "status": "post_run_observation_not_immutable_at_run",
+      "observed_reused_folds": 0,
+      "observed_trained_folds": 19,
+      "post_run_files_sha256": {
+        "outputs/checkpoints/direct/development/2022-02-01.pkl": "300f2dc6e1f09e486dd8a5ee18f01c0ed3c6ed8d7d312dc498a22bf4f477d882",
+        "outputs/checkpoints/direct/development/2022-06-15.pkl": "a5a78fdd92578fbb2b5b5396f0bdddf9cfd7258f9bc801d4ad0be7ee6c27dddb",
+        "outputs/checkpoints/direct/development/2022-11-20.pkl": "218eb1bc236ebb6aeae8a319959095491a3c2a2c53c077688acaff70f58bd0fe",
+        "outputs/checkpoints/direct/development/2023-01-10.pkl": "a9edec329d1a4262ec2fe7b12267822c6385017574db3ef2f0066a7516e6f52e",
+        "outputs/checkpoints/direct/development/2023-07-01.pkl": "84d584c7c3cf124ce3768da5a74bf543599fe057f8d5bdef79ae0253ea412e0c",
+        "outputs/checkpoints/direct/development/2023-11-24.pkl": "3071e192868775f0f611db61b9676fe4e6b06f4518c573ae57380208b597388a",
+        "outputs/checkpoints/direct/development/2023-12-18.pkl": "b8625568c1fc63df41181ee3d50b74b8cad07cfe32ca6d4ebdd1122a43057ae3",
+        "outputs/checkpoints/direct/development/2024-02-14.pkl": "fe673dd5def17dcbcff50ad3603fb03b17c93aa602e86171eca3a47ad3135bbc",
+        "outputs/checkpoints/direct/development/2024-06-20.pkl": "d12a290217d94b61ffd2682fb9b280d100b2625981414d4860fd1edaae04bfab",
+        "outputs/checkpoints/direct/development/2024-11-29.pkl": "7f0323f814748e171adad220a7888204ba70c526526ac627fa3bf727a972d1cd",
+        "outputs/checkpoints/direct/development/2024-12-20.pkl": "cb5589ffc8b0056416fca9733984d3350059df5b9f0aa342f56d7a4a6b2953de",
+        "outputs/checkpoints/direct/development/2025-02-10.pkl": "a039446b0007e120098b105944207706d125f1a34299844884b6863ee023fa7a",
+        "outputs/checkpoints/direct/final_audit/2024-01-17.pkl": "9dbf89e4d23a08c445a39369b85ba2131266030f0e42afd97c8bd90d5eca04da",
+        "outputs/checkpoints/direct/final_audit/2024-05-15.pkl": "9739ee951ba8e254fcfed632cc4279c198e4de1d4b51e25bf85b4a535ffc0375",
+        "outputs/checkpoints/direct/final_audit/2024-11-14.pkl": "ae6418c6032fbebf301b801485f8af64611926a0c9e22b82b51a0322f1a7433d",
+        "outputs/checkpoints/direct/recent_benchmark/2025-12-14.pkl": "a3a06bb5b7da9566ebf95364fc10fbc741fc6107ba3624e1e36b130d08436e64",
+        "outputs/checkpoints/direct/recent_benchmark/2025-12-21.pkl": "0d9815e389c47720d0a65e2b8a152dc968194949ccbf56c45d9cc915cacecd13",
+        "outputs/checkpoints/direct/recent_benchmark/2025-12-28.pkl": "8a81150c0344040efa819daa8293b447a17b3a4af055db48e68f40a554084ef0",
+        "outputs/checkpoints/direct/recent_benchmark/2026-01-04.pkl": "b2dadab835fa6959ad4d9fe27f0a192fb3970f99ac09b4228ba2c6fb53b6feeb"
+      }
+    },
+    "artifact_authentication": {
+      "status": "verified",
+      "manifest": "outputs/runs/941bbd3a1dd0cf23.json",
+      "manifest_sha256": "9ee9fcf0461fe438164c36f482521c964827bc6356582197924ac9279ce64a08",
+      "authenticated_artifact_count": 22
     }
   },
   "selection": {
@@ -36024,5 +36069,19 @@
     "benchmark_winner": "NeuralNet",
     "recent_benchmark_confirmation": true,
     "final_audit_winner": "NeuralNet"
+  },
+  "publication_provenance": {
+    "schema_version": "chronos-publication-v1",
+    "status": "authenticated",
+    "publication_id": "0035ce321a45e748",
+    "generated_at": "2026-07-17T16:26:15.223434+00:00",
+    "model_run_id": "941bbd3a1dd0cf23",
+    "manifest": "outputs/publications/0035ce321a45e748.json",
+    "source": {
+      "status": "content_addressed_worktree",
+      "base_revision": "0206560a0a2a94068626f4d4cd511638562e2410",
+      "content_sha256": "042335d7bebfde0460da44cab62ee44c8112fb66b1fd1a58f553a29ab0dbf4ba",
+      "reason": "Publication-only hardening occurred after model inference. These file hashes bind the exact publication source without claiming that the later source produced the model forecasts."
+    }
   }
 }

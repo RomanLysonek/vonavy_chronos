@@ -32,11 +32,45 @@ def write_json_atomic(path: str | Path, payload: dict) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f"{destination.name}.tmp-{os.getpid()}")
-    temporary.write_text(
-        json.dumps(payload, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    encoded = (json.dumps(payload, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    with temporary.open("wb") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, destination)
+    _fsync_directory(destination.parent)
+
+
+def write_json_exclusive(path: str | Path, payload: dict) -> None:
+    """Durably create a JSON file exactly once, refusing an existing path."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(payload, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        descriptor = os.open(destination, flags, 0o644)
+    except FileExistsError:
+        raise FileExistsError(f"Exclusive provenance file already exists: {destination}") from None
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        try:
+            destination.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    _fsync_directory(destination.parent)
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _git(root: Path, *args: str) -> str:
@@ -172,3 +206,28 @@ def output_hashes(
         if candidate.exists() and candidate.is_file():
             result[str(candidate.relative_to(root))] = sha256_file(candidate)
     return dict(sorted(result.items()))
+
+
+def model_provenance_summary(
+    manifest: dict,
+    *,
+    manifest_path: str,
+    manifest_sha256: str,
+    authenticated_artifact_count: int,
+) -> dict:
+    summary = {
+        key: value
+        for key, value in manifest.items()
+        if key not in {
+            "output_sha256",
+            "legacy_output_sha256",
+            "model_artifact_sha256",
+        }
+    }
+    summary["artifact_authentication"] = {
+        "status": "verified",
+        "manifest": manifest_path,
+        "manifest_sha256": manifest_sha256,
+        "authenticated_artifact_count": authenticated_artifact_count,
+    }
+    return summary

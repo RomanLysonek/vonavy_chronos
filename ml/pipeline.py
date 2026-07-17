@@ -60,6 +60,7 @@ from provenance import (
     build_run_provenance,
     output_hashes,
     write_json_atomic,
+    write_json_exclusive,
 )
 
 np.random.seed(CFG.seed)
@@ -226,6 +227,11 @@ def parse_args(argv=None) -> RuntimeOptions:
         parser.error("--include-final-audit requires publication or reproduction")
     if args.run_kind == "publication" and args.chronos2_profile != "published":
         parser.error("Publication runs require --chronos2-profile published")
+    if args.submission_model != "auto":
+        parser.error(
+            "Canonical pipeline outputs require --submission-model auto; "
+            "manual contenders must use lower-level experimental APIs"
+        )
 
     return RuntimeOptions(
         forecast_strategy=ForecastStrategy(args.forecast_strategy),
@@ -514,11 +520,32 @@ def configure_nn_runtime(cfg: Config, options: RuntimeOptions) -> dict:
     }
 
 
-CHECKPOINT_SCHEMA_VERSION = "c34-objective-channel-history-v1"
-CHRONOS2_CHECKPOINT_SCHEMA_VERSION = "chronos2-adapter-v1"
+CHECKPOINT_SCHEMA_VERSION = "publication-identity-v2"
+CHRONOS2_CHECKPOINT_SCHEMA_VERSION = "chronos2-publication-identity-v2"
 
 
-def _chronos2_checkpoint_signature(cfg: Config) -> dict:
+def build_checkpoint_run_identity(
+    provenance: dict,
+    chronos2_runtime: dict,
+    nn_runtime: dict,
+) -> dict:
+    """Bind every environment/input identity that can affect cached predictions."""
+    return {
+        "schema_version": "checkpoint-run-identity-v1",
+        "source_tree": provenance["source"]["tree"],
+        "inputs_sha256": provenance["inputs_sha256"],
+        "dependency_lock": provenance["lock"],
+        "chronos": provenance["chronos"],
+        "resolved_device": chronos2_runtime["resolved_device"],
+        "torch": provenance["runtime"]["torch"],
+        "nn_training_backend": nn_runtime["training_backend"],
+    }
+
+
+def _chronos2_checkpoint_signature(
+    cfg: Config,
+    checkpoint_identity: dict | None = None,
+) -> dict:
     """Fingerprint only the optional foundation-model prediction contract."""
     return {
         "schema_version": CHRONOS2_CHECKPOINT_SCHEMA_VERSION,
@@ -532,6 +559,7 @@ def _chronos2_checkpoint_signature(cfg: Config) -> dict:
         "cross_learning": cfg.chronos2_cross_learning,
         "covariates": cfg.chronos2_covariates,
         "quantile_levels": tuple(cfg.chronos2_quantile_levels),
+        "run_identity": checkpoint_identity or {"status": "unbound"},
     }
 
 
@@ -593,7 +621,11 @@ def _fold_checkpoint_path(
 
 
 def _fold_checkpoint_signature(
-    cfg: Config, strategy: str, origin_type: str, origin: pd.Timestamp
+    cfg: Config,
+    strategy: str,
+    origin_type: str,
+    origin: pd.Timestamp,
+    checkpoint_identity: dict | None = None,
 ) -> dict:
     cfg_signature = asdict(cfg)
     # The execution backend changes throughput, not the estimator definition.
@@ -609,6 +641,7 @@ def _fold_checkpoint_signature(
         "origin_type": origin_type,
         "origin": pd.Timestamp(origin).isoformat(),
         "cfg": cfg_signature,
+        "run_identity": checkpoint_identity or {"status": "unbound"},
     }
 
 
@@ -623,6 +656,7 @@ def _load_fold_checkpoint(
     origin_type: str,
     origin: pd.Timestamp,
     cfg: Config,
+    checkpoint_identity: dict | None = None,
 ) -> dict | None:
     path = _fold_checkpoint_path(checkpoint_dir, strategy, origin_type, origin)
     if path is None or not os.path.exists(path):
@@ -642,7 +676,9 @@ def _load_fold_checkpoint(
     ) as exc:
         print(f"    [checkpoint] ignoring unreadable {path}: {exc}")
         return None
-    expected = _fold_checkpoint_signature(cfg, strategy, origin_type, origin)
+    expected = _fold_checkpoint_signature(
+        cfg, strategy, origin_type, origin, checkpoint_identity
+    )
     if not _checkpoint_signature_compatible(payload.get("signature") or {}, expected):
         print(f"    [checkpoint] ignoring stale checkpoint {path}")
         return None
@@ -661,18 +697,23 @@ def _save_fold_checkpoint(
     cfg: Config,
     oof: pd.DataFrame,
     timing: dict,
+    checkpoint_identity: dict | None = None,
 ) -> None:
     path = _fold_checkpoint_path(checkpoint_dir, strategy, origin_type, origin)
     if path is None:
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = {
-        "signature": _fold_checkpoint_signature(cfg, strategy, origin_type, origin),
+        "signature": _fold_checkpoint_signature(
+            cfg, strategy, origin_type, origin, checkpoint_identity
+        ),
         "oof": oof,
         "timing": timing,
     }
     if strategy == "direct" and "pred_Chronos2" in oof.columns:
-        payload["chronos2_signature"] = _chronos2_checkpoint_signature(cfg)
+        payload["chronos2_signature"] = _chronos2_checkpoint_signature(
+            cfg, checkpoint_identity
+        )
     tmp_path = f"{path}.tmp-{os.getpid()}"
     with open(tmp_path, "wb") as f:
         pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -808,11 +849,48 @@ def validate_final_audit_policy(
         return
     if options.run_kind not in {"publication", "reproduction"}:
         raise RuntimeError("Final-audit origins require publication or reproduction")
-    if options.run_kind == "publication" and os.path.exists(marker_path):
+
+
+def reserve_final_audit(
+    options: RuntimeOptions,
+    *,
+    run_id: str,
+    source_revision: str,
+    generated_at: str,
+    marker_path: str = FINAL_AUDIT_MARKER,
+) -> dict | None:
+    """Consume the fresh-audit claim durably before any model evaluation."""
+    validate_final_audit_policy(options, marker_path)
+    if not options.include_final_audit:
+        return None
+    path = Path(marker_path)
+    if options.run_kind == "reproduction":
+        if not path.exists():
+            raise RuntimeError(
+                "Final-audit reproduction requires an existing consumed marker"
+            )
+        return {
+            "mode": "reproduction",
+            "fresh": False,
+            "marker": str(path),
+        }
+    reservation = {
+        "schema_version": "final-audit-consumption-v2",
+        "status": "consumed",
+        "run_id": run_id,
+        "source_revision": source_revision,
+        "consumed_at": generated_at,
+        "fresh_evidence_claim_consumed": True,
+        "origins": [date.date().isoformat() for date in FINAL_AUDIT_ORIGINS],
+    }
+    try:
+        write_json_exclusive(path, reservation)
+    except FileExistsError as exc:
         raise RuntimeError(
-            f"Final-audit origins were already consumed according to {marker_path}; "
+            f"Final-audit origins are already reserved or consumed in {path}; "
             "use --run-kind reproduction for a labelled rerun"
-        )
+        ) from exc
+    return {"mode": "publication", "fresh": True, "marker": str(path)}
 
 
 def _reindex_predictions(panel: pd.DataFrame, preds: np.ndarray, date_col: str,
@@ -833,7 +911,7 @@ def _reindex_predictions(panel: pd.DataFrame, preds: np.ndarray, date_col: str,
 def run_walk_forward_cv_direct(
     hist_df: pd.DataFrame, origins, origin_type: str, cfg: Config = CFG,
     timings: list[dict] | None = None, *, checkpoint_dir: str | None = None,
-    resume: bool = False,
+    resume: bool = False, checkpoint_identity: dict | None = None,
     run_neural: bool = True,
 ) -> pd.DataFrame:
     """Evaluate at each `origin` date (the last training day): trains only
@@ -876,13 +954,21 @@ def run_walk_forward_cv_direct(
 
         if resume:
             cached = _load_fold_checkpoint(
-                checkpoint_dir, "direct", origin_type, origin, cfg
+                checkpoint_dir,
+                "direct",
+                origin_type,
+                origin,
+                cfg,
+                checkpoint_identity,
             )
             if cached is not None:
                 cached_oof = cached["oof"].copy()
                 timing_record = dict(cached.get("timing") or {})
+                timing_record["checkpoint_source"] = "reused"
                 cached_chronos_signature = cached.get("chronos2_signature")
-                expected_chronos_signature = _chronos2_checkpoint_signature(cfg)
+                expected_chronos_signature = _chronos2_checkpoint_signature(
+                    cfg, checkpoint_identity
+                )
                 has_current_chronos = (
                     "pred_Chronos2" in cached_oof.columns
                     and cached_chronos_signature == expected_chronos_signature
@@ -922,6 +1008,7 @@ def run_walk_forward_cv_direct(
                         cfg,
                         cached_oof,
                         timing_record,
+                        checkpoint_identity,
                     )
                 elif not cfg.enable_chronos2:
                     cached_oof = _drop_chronos2_oof_columns(cached_oof)
@@ -1067,6 +1154,7 @@ def run_walk_forward_cv_direct(
         timing_record = {
             "strategy": "direct", "origin_type": origin_type,
             "origin": str(origin.date()),
+            "checkpoint_source": "trained",
             "incumbent_seconds": round(nn_seconds, 2),
             "chronos2_seconds": round(chronos2_seconds, 2),
             "fold_seconds": round(fold_seconds, 2),
@@ -1079,7 +1167,14 @@ def run_walk_forward_cv_direct(
         if timings is not None:
             timings.append(timing_record)
         _save_fold_checkpoint(
-            checkpoint_dir, "direct", origin_type, origin, cfg, fold_oof, timing_record
+            checkpoint_dir,
+            "direct",
+            origin_type,
+            origin,
+            cfg,
+            fold_oof,
+            timing_record,
+            checkpoint_identity,
         )
 
     return pd.concat(fold_frames, ignore_index=True) if fold_frames else pd.DataFrame()
@@ -1756,6 +1851,7 @@ def export_results_json(
     final_quantile_forecasts: dict | None = None,
     origin_registry: list[dict] | None = None,
     provenance: dict | None = None,
+    publication_provenance: dict | None = None,
 ) -> dict:
     """Write the strict two-model dashboard contract.
 
@@ -2065,6 +2161,10 @@ def export_results_json(
             "status": "unknown",
             "reason": "This artifact predates immutable run provenance.",
         },
+        "publication_provenance": publication_provenance or {
+            "status": "not_published",
+            "reason": "No authenticated static publication manifest is attached.",
+        },
         "selection": {
             "canonical_model": canonical_model,
             "canonical_strategy": "direct",
@@ -2274,6 +2374,18 @@ def main(argv=None) -> None:
         "status": "recorded_in_run_manifest",
         "manifest": provenance["run_manifest"],
     }
+    audit_reservation = reserve_final_audit(
+        options,
+        run_id=provenance["run_id"],
+        source_revision=provenance["source"]["revision"],
+        generated_at=provenance["generated_at"],
+        marker_path=str(repository_root / FINAL_AUDIT_MARKER),
+    )
+    if audit_reservation is not None:
+        provenance["final_audit_consumption"] = audit_reservation
+    checkpoint_identity = build_checkpoint_run_identity(
+        provenance, chronos2_runtime, nn_runtime
+    )
 
     print("\n=== Development head-to-head CV ===")
     dev_oof = run_walk_forward_cv_direct(
@@ -2284,6 +2396,7 @@ def main(argv=None) -> None:
         timings=timings["cv_folds"],
         checkpoint_dir=options.checkpoint_dir,
         resume=options.resume,
+        checkpoint_identity=checkpoint_identity,
     )
     print("\n=== Previously inspected recent diagnostic ===")
     benchmark_oof = run_walk_forward_cv_direct(
@@ -2294,6 +2407,7 @@ def main(argv=None) -> None:
         timings=timings["cv_folds"],
         checkpoint_dir=options.checkpoint_dir,
         resume=options.resume,
+        checkpoint_identity=checkpoint_identity,
     )
 
     audit_oof = pd.DataFrame()
@@ -2307,7 +2421,27 @@ def main(argv=None) -> None:
             timings=timings["cv_folds"],
             checkpoint_dir=options.checkpoint_dir,
             resume=options.resume,
+            checkpoint_identity=checkpoint_identity,
         )
+
+    checkpoint_paths = sorted(
+        Path(options.checkpoint_dir).rglob("*.pkl")
+        if options.checkpoint_dir and Path(options.checkpoint_dir).exists()
+        else []
+    )
+    provenance["checkpoints"] = {
+        "status": "authenticated",
+        "identity": checkpoint_identity,
+        "files_sha256": output_hashes(repository_root, checkpoint_paths),
+        "reused_folds": sum(
+            timing.get("checkpoint_source") == "reused"
+            for timing in timings["cv_folds"]
+        ),
+        "trained_folds": sum(
+            timing.get("checkpoint_source") == "trained"
+            for timing in timings["cv_folds"]
+        ),
+    }
 
     oof_frames = [dev_oof, benchmark_oof]
     if not audit_oof.empty:
@@ -2603,20 +2737,6 @@ def main(argv=None) -> None:
     (repository_root / "outputs" / "SHA256SUMS").write_text(
         checksums, encoding="utf-8"
     )
-    if options.run_kind == "publication" and options.include_final_audit:
-        write_json_atomic(
-            repository_root / FINAL_AUDIT_MARKER,
-            {
-                "schema_version": "final-audit-consumption-v1",
-                "run_id": provenance["run_id"],
-                "source_revision": provenance["source"]["revision"],
-                "consumed_at": provenance["generated_at"],
-                "origins": [
-                    date.date().isoformat() for date in FINAL_AUDIT_ORIGINS
-                ],
-            },
-        )
-
     print(f"\nSaved challenge winner submission: {canonical_model} / direct")
     print("Saved incumbent forecast: outputs/submission_best_nn.csv")
     if chronos_submission is not None:

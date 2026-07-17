@@ -66,6 +66,16 @@ def test_registry_and_cli_define_exactly_two_direct_contenders():
     assert options.chronos2 == "on"
     with pytest.raises(SystemExit):
         parse_args(["--forecast-strategy", "recursive"])
+    with pytest.raises(SystemExit):
+        parse_args([
+            "--run-kind", "publication",
+            "--submission-model", "Chronos2",
+        ])
+    with pytest.raises(SystemExit):
+        parse_args([
+            "--run-kind", "reproduction",
+            "--submission-model", "NeuralNet",
+        ])
 
 
 def test_export_boundary_removes_every_legacy_model(tmp_path):
@@ -151,6 +161,8 @@ def test_checked_in_dashboard_snapshot_obeys_challenge_schema():
     assert set(data["forecasts"]) == set(CHALLENGE_MODELS)
     assert data["selection"]["canonical_model"] == "NeuralNet"
     assert data["provenance"]["source"]["revision"]
+    assert data["provenance"]["verification"]["status"] == "incomplete"
+    assert data["publication_provenance"]["status"] == "authenticated"
     assert data["probabilistic_evaluation"]["status"] == "evaluated"
 
 

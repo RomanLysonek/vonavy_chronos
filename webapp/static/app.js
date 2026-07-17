@@ -390,14 +390,18 @@ function renderEvidence(data) {
   }).join("") || '<tr><td colspan="4">Sensitivity evidence is not available.</td></tr>';
 
   const provenance = data.provenance || {};
+  const publication = data.publication_provenance || {};
   const source = provenance.source || {};
   const runtime = provenance.runtime || {};
+  const verification = provenance.verification || {};
   document.getElementById("provenance-list").innerHTML = [
-    ["Run ID", provenance.run_id || "Unknown"],
-    ["Source revision", source.revision || "Unknown"],
+    ["Model run ID", provenance.run_id || "Unknown"],
+    ["Model source revision", source.revision || "Unknown"],
     ["Chronos revision", provenance.chronos?.model_revision || data.config?.chronos2_model_revision || "Unknown"],
     ["Runtime", `${runtime.os || "Unknown"} / ${runtime.machine || "Unknown"} / ${runtime.torch?.device || "Unknown"}`],
-    ["Generated", provenance.generated_at || data.generated_at || "Unknown"],
+    ["Model evidence verification", verification.status === "incomplete" ? `Incomplete — ${verification.reason}` : (verification.status || "Unknown")],
+    ["Publication ID", publication.publication_id || "Unknown"],
+    ["Publication source", publication.source?.content_sha256 || "Unknown"],
   ].map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span class="provenance-value">${body}</span></div>`).join("");
 }
 
