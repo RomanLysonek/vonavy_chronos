@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 RESULTS_PATH = ROOT_DIR / "outputs" / "results.json"
 
-app = FastAPI(title="vonavy_chronos — Best NN vs Chronos-2")
+app = FastAPI(title="VOŇAVÝ CHRONOS — Best NN vs Chronos-2")
 
 
 @app.get("/api/results")
@@ -73,4 +73,4 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server:app", host="127.0.0.1", port=8998, reload=True, reload_dirs=[str(Path(__file__).parent)])
+    uvicorn.run("server:app", host="127.0.0.1", port=9003, reload=True, reload_dirs=[str(Path(__file__).parent)])

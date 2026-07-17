@@ -131,10 +131,17 @@ function forecastsFor(data) {
 }
 
 function updateSharedCopy(data) {
+  const productCount = Number(data.config?.num_products) || 30;
+  document.querySelectorAll(".promo-dataset-link").forEach((item) => {
+    item.textContent = `${productCount} Product Time Series`;
+  });
   const promoStrategy = document.getElementById("promo-strategy");
   if (promoStrategy) promoStrategy.textContent = `${data.config?.horizon || 7}-Day Direct Forecast`;
   const promoCount = document.getElementById("promo-model-count");
-  if (promoCount) promoCount.textContent = "2 Contenders";
+  if (promoCount) promoCount.textContent = `${CHALLENGE_MODELS.length} Contenders`;
+  document.querySelectorAll(".promo-evaluation-link").forEach((item) => {
+    item.textContent = "Same Walk-Forward Test";
+  });
   const winner = canonicalModel(data);
   const footer = document.getElementById("footer-method-text");
   if (footer) {

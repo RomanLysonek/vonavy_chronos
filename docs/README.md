@@ -1,3 +1,3 @@
-# Static challenge dashboard
+# Static Notino forecast dashboard
 
-Generated from `webapp/static/` and the checked-in two-model `results.json`.
+Generated from `outputs/results.json`. Configure GitHub Pages to serve the `/docs` directory.

@@ -40,9 +40,48 @@ assert.strictEqual(vm.runInContext("summaryRows({benchmark_summary_all:[{model:'
 
 const index = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
 assert.ok(index.includes("Best NN vs Chronos-2"));
-assert.ok(index.includes("No irrelevant leaderboard"));
+assert.ok(!index.includes("One frozen incumbent"));
+assert.ok(!index.includes("No irrelevant leaderboard"));
+assert.ok(index.includes('<span class="brand-logo">NOTINO</span>'));
+assert.ok(index.includes('<span class="brand-tagline">VOŇAVÝ CHRONOS</span>'));
+assert.ok(!index.includes("VONAVY_CHRONOS"));
+assert.ok(!index.includes("Foundation Model Challenge"));
 for (const legacy of ["XGBoost", "LightGBM", "Dynamic Ridge", "Moving Average", "Seasonal Naive", "Ensemble"]) {
   assert.ok(!index.includes(legacy), `legacy contender visible in index.html: ${legacy}`);
+}
+
+const evaluation = fs.readFileSync(path.join(staticDir, "evaluation.html"), "utf8");
+assert.ok(evaluation.includes('class="model-hero evaluation-hero"'));
+assert.ok(evaluation.includes("One fixed contract for both contenders"));
+assert.ok(evaluation.includes("Development OOF selects the winner"));
+assert.ok(!evaluation.includes("Leakage-Safe Head-to-Head"));
+assert.ok(!evaluation.includes("What is fixed, what selects the winner"));
+
+const expectedPromoFacts = [
+  "30 Product Time Series",
+  "7-Day Direct Forecast",
+  "2 Contenders",
+  "Same Walk-Forward Test",
+];
+for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
+  const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
+  const promo = html.match(/<div class="promo-bar">([\s\S]*?)<\/div>/);
+  assert.ok(promo, `missing promo bar in ${htmlName}`);
+  for (const fact of expectedPromoFacts) {
+    assert.ok(promo[1].includes(fact), `${htmlName} has inconsistent promo fact: ${fact}`);
+  }
+}
+assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
+  'item.textContent = "Same Walk-Forward Test"',
+));
+
+const styles = fs.readFileSync(path.join(staticDir, "styles.css"), "utf8");
+assert.ok(styles.includes("scrollbar-gutter: stable"));
+assert.ok(styles.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
+assert.ok(styles.includes(".promo-bar > *"));
+for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
+  const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
+  assert.ok(html.includes("styles.css?v=chronos-3"), `${htmlName} uses stale strip CSS`);
 }
 
 const docsIndex = fs.readFileSync(path.join(docsDir, "index.html"), "utf8");

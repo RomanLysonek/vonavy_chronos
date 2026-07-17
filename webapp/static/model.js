@@ -36,7 +36,7 @@ function methodology(data, model) {
 }
 
 function renderHero(model) {
-  document.getElementById("page-title").textContent = `${model.label} — vonavy_chronos`;
+  document.getElementById("page-title").textContent = `${model.label} — VOŇAVÝ CHRONOS`;
   const hero = document.getElementById("model-hero");
   hero.style.setProperty("--mc", model.color);
   document.getElementById("hero-badge").textContent = model.key === "NeuralNet" ? "Frozen incumbent" : "Foundation challenger";
