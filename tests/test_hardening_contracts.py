@@ -1,4 +1,6 @@
 import json
+import pickle
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -15,12 +17,16 @@ from pipeline import (
     OOF_MODEL_COLUMNS,
     RuntimeOptions,
     _fold_checkpoint_signature,
+    _load_fold_checkpoint,
+    actual_execution_matches,
+    build_actual_execution,
     build_checkpoint_run_identity,
+    load_authenticated_checkpoint_index,
     reserve_final_audit,
     validate_final_audit_policy,
 )
 from framework import Config
-from provenance import sha256_file, sha256_json
+from provenance import build_run_provenance, sha256_file, sha256_json
 from static_site import check_static_dashboard, publish_static_dashboard
 
 
@@ -176,8 +182,17 @@ def test_checkpoint_run_identity_covers_source_inputs_dependencies_and_backends(
             },
             "runtime": {"torch": {"device": "mps", "package": {"value": "2.13.0"}}},
         },
-        {"resolved_device": "mps"},
-        {"training_backend": "device_resident"},
+        {
+            "resolved_device": "mps",
+            "dtype": "float32",
+            "batch_size": 100,
+            "enabled": True,
+        },
+        {
+            "training_backend": "device_resident",
+            "batch_size": 512,
+            "device": "cuda",
+        },
     )
     assert identity["source_tree"] == "tree"
     assert identity["inputs_sha256"]["train"] == "train-hash"
@@ -185,6 +200,155 @@ def test_checkpoint_run_identity_covers_source_inputs_dependencies_and_backends(
     assert identity["chronos"]["model_revision"] == "model-sha"
     assert identity["resolved_device"] == "mps"
     assert identity["nn_training_backend"] == "device_resident"
+    assert identity["expected_actual_execution"]["nn"]["device"] == "cuda"
+    assert identity["expected_actual_execution"]["chronos2"]["device"] == "mps"
+
+
+def test_checkpoint_requires_prior_hash_and_rejects_tampered_bytes(tmp_path):
+    cfg = Config(output_dir=str(tmp_path))
+    origin = pd.Timestamp("2025-01-01")
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_path = (
+        checkpoint_dir / "direct" / "development" / f"{origin.date().isoformat()}.pkl"
+    )
+    checkpoint_path.parent.mkdir(parents=True)
+    payload = {
+        "signature": _fold_checkpoint_signature(
+            cfg, "direct", "development", origin
+        ),
+        "oof": pd.DataFrame({"actual": [1.0]}),
+        "actual_execution": None,
+    }
+    checkpoint_path.write_bytes(pickle.dumps(payload))
+    assert _load_fold_checkpoint(
+        str(checkpoint_dir),
+        "direct",
+        "development",
+        origin,
+        cfg,
+    ) is None
+    trusted_hash = sha256_file(checkpoint_path)
+    checkpoint_path.write_bytes(checkpoint_path.read_bytes() + b"tampered")
+    assert _load_fold_checkpoint(
+        str(checkpoint_dir),
+        "direct",
+        "development",
+        origin,
+        cfg,
+        expected_checkpoint_sha256=trusted_hash,
+    ) is None
+
+
+def test_checkpoint_trust_index_is_authenticated_by_prior_publication(tmp_path):
+    runs = tmp_path / "outputs" / "runs"
+    publications = tmp_path / "outputs" / "publications"
+    runs.mkdir(parents=True)
+    publications.mkdir()
+    model_path = runs / "prior-run.json"
+    model_path.write_text(json.dumps({
+        "run_id": "prior-run",
+        "checkpoints": {
+            "status": "authenticated",
+            "files_sha256": {"outputs/checkpoints/fold.pkl": "checkpoint-hash"},
+        },
+    }))
+    publication_path = publications / "prior-publication.json"
+    publication_path.write_text(json.dumps({
+        "model_run_id": "prior-run",
+        "artifact_sha256": {
+            "outputs/runs/prior-run.json": sha256_file(model_path),
+        },
+    }))
+    trust = load_authenticated_checkpoint_index(
+        tmp_path, "outputs/publications/prior-publication.json"
+    )
+    assert trust["status"] == "authenticated"
+    assert trust["checkpoint_sha256"]["outputs/checkpoints/fold.pkl"] == (
+        "checkpoint-hash"
+    )
+
+    model_path.write_text("{}")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        load_authenticated_checkpoint_index(
+            tmp_path, "outputs/publications/prior-publication.json"
+        )
+
+def test_backend_fallback_identity_is_not_reusable_as_device_resident():
+    actual = build_actual_execution(
+        [{"device": "mps", "backend": "dataloader_fallback", "batch_size": 512}],
+        Config(enable_chronos2=False),
+    )
+    expected_identity = {
+        "expected_actual_execution": {
+            "nn": {
+                "device": "mps",
+                "backend": "device_resident",
+                "batch_size": 512,
+            },
+            "chronos2": None,
+        }
+    }
+    assert actual["nn"]["backend"] == "dataloader_fallback"
+    assert actual_execution_matches(actual, expected_identity) is False
+
+
+def test_dirty_reproduction_cannot_build_canonical_provenance(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=tmp_path,
+        check=True,
+    )
+    data = tmp_path / "data"
+    data.mkdir()
+    train = data / "train.parquet"
+    test = data / "test.parquet"
+    lock = tmp_path / "requirements.lock"
+    source = tmp_path / "source.py"
+    for path, content in (
+        (train, b"train"),
+        (test, b"test"),
+        (lock, b"lock"),
+        (source, b"clean"),
+    ):
+        path.write_bytes(content)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=tmp_path, check=True)
+    source.write_bytes(b"dirty")
+    with pytest.raises(RuntimeError, match="clean source tree"):
+        build_run_provenance(
+            repository_root=tmp_path,
+            command=["python", "pipeline.py"],
+            run_kind="reproduction",
+            config={"test": True},
+            input_paths=[train, test],
+            lock_path=lock,
+            model_id="amazon/chronos-2",
+            model_revision="revision",
+            resolved_device="cpu",
+        )
+    development = build_run_provenance(
+        repository_root=tmp_path,
+        command=["python", "pipeline.py"],
+        run_kind="development",
+        config={"test": True},
+        input_paths=[train, test],
+        lock_path=lock,
+        model_id="amazon/chronos-2",
+        model_revision="revision",
+        resolved_device="cpu",
+    )
+    assert development["source"]["dirty"] is True
+
+
+def test_noncanonical_experiment_outputs_are_gitignored():
+    root = Path(__file__).resolve().parents[1]
+    assert "outputs/experiments/" in (root / ".gitignore").read_text()
 
 
 def test_publication_finalizer_preserves_authenticated_checkpoint_metadata(tmp_path):

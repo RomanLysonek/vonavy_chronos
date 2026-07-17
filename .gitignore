@@ -12,6 +12,7 @@ __pycache__/
 # Runtime logs and caches
 *.log
 outputs/checkpoints/
+outputs/experiments/
 .huggingface/
 
 # Generated heavyweight model artifacts

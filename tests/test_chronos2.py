@@ -4,6 +4,7 @@ import pandas as pd
 from framework import Config, MODEL_META, MODEL_ORDER, MODEL_STRATEGY_SUPPORT
 from models.chronos2_model import build_chronos2_frames, forecast_chronos2
 from pipeline import SubmissionModel, configure_chronos2_runtime, parse_args
+from provenance import sha256_file
 
 
 def _raw(periods: int = 35, horizon: int = 3):
@@ -264,6 +265,10 @@ def test_resume_augments_only_chronos_and_reuses_base_checkpoint(
         resume=False,
     )
     assert "pred_Chronos2" not in base
+    checkpoint_path = (
+        checkpoint_dir / "direct" / "development" / f"{origin.date().isoformat()}.pkl"
+    )
+    base_trust = {str(checkpoint_path): sha256_file(checkpoint_path)}
 
     calls = []
 
@@ -295,22 +300,30 @@ def test_resume_augments_only_chronos_and_reuses_base_checkpoint(
         run_neural=False,
         checkpoint_dir=str(checkpoint_dir),
         resume=True,
+        trusted_checkpoint_hashes=base_trust,
     )
     assert calls == [(len(history), len(future))]
     assert (augmented["pred_Chronos2"] == 42.0).all()
+    augmented_trust = {str(checkpoint_path): sha256_file(checkpoint_path)}
 
     calls.clear()
+    reused_timings = []
     reused = pipeline_module.run_walk_forward_cv_direct(
         full,
         [origin],
         "development",
         chronos_cfg,
+        timings=reused_timings,
         run_neural=False,
         checkpoint_dir=str(checkpoint_dir),
         resume=True,
+        trusted_checkpoint_hashes=augmented_trust,
     )
     assert calls == []
     assert (reused["pred_Chronos2"] == 42.0).all()
+    assert reused_timings[0]["consumed_checkpoint_sha256"] == (
+        augmented_trust[str(checkpoint_path)]
+    )
 
     disabled = pipeline_module.run_walk_forward_cv_direct(
         full,
@@ -320,6 +333,7 @@ def test_resume_augments_only_chronos_and_reuses_base_checkpoint(
         run_neural=False,
         checkpoint_dir=str(checkpoint_dir),
         resume=True,
+        trusted_checkpoint_hashes=augmented_trust,
     )
     assert "pred_Chronos2" not in disabled
     assert not any(column.endswith("_Chronos2") for column in disabled.columns)

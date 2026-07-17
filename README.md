@@ -51,6 +51,8 @@ Model-run and static-publication provenance are separate. The model record names
 
 The current run `941bbd3a1dd0cf23` has **incomplete checkpoint provenance**. Its immutable run record did not bind checkpoint source/input/dependency/device identities or checkpoint hashes before `--resume` execution. The local execution log reports zero reused folds and 19 trained folds, but that observation was not authenticated at run time and is not promoted into a fully reproducible claim. Future checkpoint signatures bind those identities and record checkpoint hashes.
 
+Future canonical resume requires `--checkpoint-trust-publication` pointing to a prior authenticated publication manifest. Checkpoint bytes are hash-verified before deserialization; without that trust index they are retrained rather than reused. Canonical publication/reproduction also requires a clean source tree and disables automatic NN backend fallback.
+
 The core `uv.lock` intentionally excludes Chronos. Static Pages requires no inference environment, and FastAPI is an optional local preview.
 
 ## Install

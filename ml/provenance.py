@@ -89,7 +89,7 @@ def source_identity(root: str | Path) -> dict:
     revision = _git(repository, "rev-parse", "HEAD")
     tree = _git(repository, "rev-parse", "HEAD^{tree}")
     dirty_lines = _git(
-        repository, "status", "--porcelain", "--untracked-files=no"
+        repository, "status", "--porcelain", "--untracked-files=all"
     ).splitlines()
     return {
         "revision": revision,
@@ -159,9 +159,10 @@ def build_run_provenance(
 ) -> dict:
     root = Path(repository_root).resolve()
     source = source_identity(root)
-    if run_kind == "publication" and source["dirty"]:
+    if run_kind in {"publication", "reproduction"} and source["dirty"]:
         raise RuntimeError(
-            "Publication runs require a clean tracked source tree; dirty paths: "
+            "Canonical publication/reproduction requires a clean source tree, "
+            "including untracked files; dirty paths: "
             + ", ".join(source["dirty_paths"])
         )
     inputs = {
