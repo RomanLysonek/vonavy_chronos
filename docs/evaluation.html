@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,17 +10,17 @@
 <body>
   <div class="bg-glow"></div>
   <div class="promo-bar">
-    <a class="promo-dataset-link" data-dataset-link href="/dataset">30 Product Time Series</a>
+    <a class="promo-dataset-link" data-dataset-link href="./dataset.html">30 Product Time Series</a>
     <span id="promo-strategy">7-Day Direct Forecast</span>
     <span id="promo-model-count">2 Contenders</span>
-    <a class="promo-evaluation-link" data-evaluation-link href="evaluation.html">Same Walk-Forward Test</a>
+    <a class="promo-evaluation-link" data-evaluation-link href="./evaluation.html">Same Walk-Forward Test</a>
   </div>
 
   <header class="hero">
     <div class="hero-top">
       <div class="brand">
         <span class="brand-logo">NOTINO</span>
-        <span class="brand-tagline">VOŇAVÝ CHRONOS</span>
+        <span class="brand-tagline">/ Interview Assignment</span>
       </div>
       <div class="hero-title-block"><h1>Evaluation Contract</h1></div>
     </div>
@@ -30,7 +30,7 @@
   <header class="model-hero evaluation-hero" style="--mc:#4b5563">
     <span class="model-badge">Validation &amp; scoring</span>
     <h1>One fixed contract for both contenders</h1>
-    <p class="blurb">Best NN and Chronos-2 are evaluated on identical rolling forecast origins, seven-day horizons, known-at-origin information and common product-date rows. Development OOF selects the winner; the recent benchmark only checks whether that decision holds near the submission period.</p>
+    <p class="blurb">Best NN and Chronos-2 are evaluated on identical rolling forecast origins, seven-day horizons, known-at-origin information and common product-date rows. Development OOF selects the winner; the already-inspected recent diagnostic and final audit are non-selection evidence.</p>
   </header>
 
   <main id="app">
@@ -47,9 +47,14 @@
         <div class="origin-list" id="development-origins"></div>
       </section>
       <section class="panel">
-        <div class="panel-header"><h2>Recent benchmark origins</h2><p>Held back as the closest pseudo-test confirmation</p></div>
+        <div class="panel-header"><h2>Recent diagnostic origins</h2><p>Previously inspected; reported honestly as non-selection evidence</p></div>
         <div class="origin-list" id="benchmark-origins"></div>
       </section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>Final audit origins</h2><p>Consumed once by the publication run; subsequent executions are labelled reproductions.</p></div>
+      <div class="origin-list" id="audit-origins"></div>
     </section>
 
     <section class="panel">
@@ -58,12 +63,12 @@
         <article class="lineage-card"><span class="lineage-index">01</span><h3>Primary population</h3><strong>Conditional demand</strong><p>Score only days when the product was available for purchase. Stockouts censor demand and are not treated as true zero demand.</p></article>
         <article class="lineage-card"><span class="lineage-index">02</span><h3>Fair comparison</h3><strong>Common rows</strong><p>A row is scored only when the actual and both contender predictions are finite. Both models therefore receive identical denominators.</p></article>
         <article class="lineage-card"><span class="lineage-index">03</span><h3>Primary metric</h3><strong>Global WAPE</strong><p>Sum of absolute errors divided by sum of actual demand. High-volume product-days receive proportionally appropriate weight.</p></article>
-        <article class="lineage-card"><span class="lineage-index">04</span><h3>Decision protocol</h3><strong>Development first</strong><p>The selected winner comes from development OOF. The recent benchmark reports confirmation or disagreement but does not retune the models.</p></article>
+        <article class="lineage-card"><span class="lineage-index">04</span><h3>Decision protocol</h3><strong>Development only</strong><p>The selected winner comes from development OOF. Recent and final-audit results report robustness but never retune the models.</p></article>
       </div>
     </section>
 
     <section class="panel">
-      <div class="panel-header"><h2>Test-aligned strata</h2><p>The January test week motivates a weighted development score without discarding broader stress periods.</p></div>
+      <div class="panel-header"><h2>Test-aligned strata</h2><p>The January test week motivates the frozen 60/25/15 development score; sensitivity views are reporting only.</p></div>
       <div class="definition-list" id="strata-list"></div>
     </section>
 
@@ -80,7 +85,7 @@
 
   <footer><p id="footer-method-text">Loading challenge method…</p></footer>
   <script>window.STATIC_DASHBOARD = true;</script>
-  <script src="./common.js?v=chronos-2"></script>
-  <script src="./evaluation.js?v=chronos-1"></script>
+  <script src="./common.js?v=chronos-4"></script>
+  <script src="./evaluation.js?v=chronos-4"></script>
 </body>
 </html>

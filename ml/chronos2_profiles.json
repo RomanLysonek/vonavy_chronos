@@ -1,0 +1,47 @@
+{
+  "schema_version": "chronos2-profiles-v1",
+  "profiles": {
+    "published": {
+      "cross_learning": true,
+      "covariates": true,
+      "context_length": null,
+      "quantile_levels": [0.1, 0.5, 0.9],
+      "publication_eligible": true
+    },
+    "target-only": {
+      "cross_learning": false,
+      "covariates": false,
+      "context_length": null,
+      "quantile_levels": [0.1, 0.5, 0.9],
+      "publication_eligible": false
+    },
+    "no-cross-learning": {
+      "cross_learning": false,
+      "covariates": true,
+      "context_length": null,
+      "quantile_levels": [0.1, 0.5, 0.9],
+      "publication_eligible": false
+    },
+    "context-64": {
+      "cross_learning": true,
+      "covariates": true,
+      "context_length": 64,
+      "quantile_levels": [0.1, 0.5, 0.9],
+      "publication_eligible": false
+    },
+    "context-128": {
+      "cross_learning": true,
+      "covariates": true,
+      "context_length": 128,
+      "quantile_levels": [0.1, 0.5, 0.9],
+      "publication_eligible": false
+    },
+    "context-256": {
+      "cross_learning": true,
+      "covariates": true,
+      "context_length": 256,
+      "quantile_levels": [0.1, 0.5, 0.9],
+      "publication_eligible": false
+    }
+  }
+}

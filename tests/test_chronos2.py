@@ -4,6 +4,7 @@ import pandas as pd
 from framework import Config, MODEL_META, MODEL_ORDER, MODEL_STRATEGY_SUPPORT
 from models.chronos2_model import build_chronos2_frames, forecast_chronos2
 from pipeline import SubmissionModel, configure_chronos2_runtime, parse_args
+from provenance import sha256_file
 
 
 def _raw(periods: int = 35, horizon: int = 3):
@@ -54,6 +55,8 @@ class FakeChronosPipeline:
         output["0.1"] = base_point - 5.0
         output["0.5"] = base_point
         output["0.9"] = base_point + 5.0
+        if self.make_first_nonfinite:
+            output.iloc[0, output.columns.get_loc("0.5")] = np.nan
         return output.iloc[::-1].reset_index(drop=True)
 
 
@@ -135,21 +138,19 @@ def test_chronos2_cli_and_registry_are_direct_only():
     options = parse_args([
         "--chronos2", "on",
         "--chronos2-device", "cpu",
-        "--chronos2-context-length", "512",
+        "--chronos2-profile", "target-only",
         "--chronos2-batch-size", "24",
-        "--chronos2-cross-learning", "off",
-        "--chronos2-covariates", "off",
-        "--submission-model", "Chronos2",
     ])
     cfg = Config()
     runtime = configure_chronos2_runtime(cfg, options)
 
-    assert options.submission_model is SubmissionModel.CHRONOS2
+    assert options.submission_model is SubmissionModel.AUTO
     assert runtime["enabled"] is True
-    assert cfg.chronos2_context_length == 512
+    assert cfg.chronos2_context_length is None
     assert cfg.chronos2_batch_size == 24
     assert cfg.chronos2_cross_learning is False
     assert cfg.chronos2_covariates is False
+    assert cfg.chronos2_model_revision == "29ec3766d36d6f73f0696f85560a422f50e8498c"
     assert "Chronos2" in MODEL_ORDER
     assert MODEL_STRATEGY_SUPPORT["Chronos2"] == {"direct"}
     assert MODEL_META["Chronos2"]["source_url"].endswith("amazon/chronos-2")
@@ -264,6 +265,10 @@ def test_resume_augments_only_chronos_and_reuses_base_checkpoint(
         resume=False,
     )
     assert "pred_Chronos2" not in base
+    checkpoint_path = (
+        checkpoint_dir / "direct" / "development" / f"{origin.date().isoformat()}.pkl"
+    )
+    base_trust = {str(checkpoint_path): sha256_file(checkpoint_path)}
 
     calls = []
 
@@ -295,22 +300,30 @@ def test_resume_augments_only_chronos_and_reuses_base_checkpoint(
         run_neural=False,
         checkpoint_dir=str(checkpoint_dir),
         resume=True,
+        trusted_checkpoint_hashes=base_trust,
     )
     assert calls == [(len(history), len(future))]
     assert (augmented["pred_Chronos2"] == 42.0).all()
+    augmented_trust = {str(checkpoint_path): sha256_file(checkpoint_path)}
 
     calls.clear()
+    reused_timings = []
     reused = pipeline_module.run_walk_forward_cv_direct(
         full,
         [origin],
         "development",
         chronos_cfg,
+        timings=reused_timings,
         run_neural=False,
         checkpoint_dir=str(checkpoint_dir),
         resume=True,
+        trusted_checkpoint_hashes=augmented_trust,
     )
     assert calls == []
     assert (reused["pred_Chronos2"] == 42.0).all()
+    assert reused_timings[0]["consumed_checkpoint_sha256"] == (
+        augmented_trust[str(checkpoint_path)]
+    )
 
     disabled = pipeline_module.run_walk_forward_cv_direct(
         full,
@@ -320,6 +333,7 @@ def test_resume_augments_only_chronos_and_reuses_base_checkpoint(
         run_neural=False,
         checkpoint_dir=str(checkpoint_dir),
         resume=True,
+        trusted_checkpoint_hashes=augmented_trust,
     )
     assert "pred_Chronos2" not in disabled
     assert not any(column.endswith("_Chronos2") for column in disabled.columns)

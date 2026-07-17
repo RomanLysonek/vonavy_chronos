@@ -1,3 +1,3 @@
-# Static Notino forecast dashboard
+# Static Notino interview dashboard
 
-Generated from `outputs/results.json`. Configure GitHub Pages to serve the `/docs` directory.
+Generated from `webapp/static/` and `outputs/results.json`. Do not edit `docs/` directly.

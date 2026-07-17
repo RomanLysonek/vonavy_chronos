@@ -107,6 +107,7 @@ def _resolve_torch_dtype(name: str):
 @lru_cache(maxsize=4)
 def load_chronos2_pipeline(
     model_id: str,
+    model_revision: str,
     device: str,
     dtype: str,
 ):
@@ -123,6 +124,7 @@ def load_chronos2_pipeline(
     resolved_device = resolve_chronos2_device(device)
     return BaseChronosPipeline.from_pretrained(
         model_id,
+        revision=model_revision,
         device_map=resolved_device,
         torch_dtype=_resolve_torch_dtype(dtype),
     )
@@ -427,6 +429,7 @@ def forecast_chronos2(
     else:
         model = pipeline or load_chronos2_pipeline(
             cfg.chronos2_model_id,
+            cfg.chronos2_model_revision,
             cfg.chronos2_device,
             cfg.chronos2_dtype,
         )
@@ -513,8 +516,10 @@ def forecast_chronos2(
     eligible_ids = set(context[CHRONOS2_ID_COLUMN].astype(str))
     no_context = ~aligned["_chronos_id"].isin(eligible_ids).to_numpy(dtype=bool)
 
+    if 0.5 not in quantile_lookup:
+        raise RuntimeError("Chronos-2 publication requires the q50 median")
     raw_point = pd.to_numeric(
-        aligned["prediction_raw_model"], errors="coerce"
+        aligned["quantile_0.5"], errors="coerce"
     ).to_numpy(dtype=float)
     nonfinite = ~np.isfinite(raw_point)
     fallback = _robust_fallback(history_raw, future_raw, cfg.baseline_variant)

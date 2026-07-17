@@ -1,0 +1,130 @@
+{
+  "schema_version": "chronos-run-v2-migrated",
+  "generated_at": "2026-07-17T15:03:09.381592+00:00",
+  "run_kind": "publication",
+  "source": {
+    "revision": "c0f0cc1a3c14558f6c123bce88cf85f162b6e2de",
+    "tree": "2900671b1083551d5382135669e5cd9b014c550c",
+    "dirty": false,
+    "dirty_paths": []
+  },
+  "inputs_sha256": {
+    "data/train_data.parquet": "23417029151028424ccdb433fe931779164e999aaa54b262dd81253686e8b613",
+    "data/test_data.parquet": "b0dbd35dd37e8f2048ed481ea7c98b38b56aec365e7d41170e7abedcb2f14526"
+  },
+  "config_sha256": "3d6bc7f7ac71d1c8da7fc2b1fc29742ac76b0911f4001cce521f39d03a211b24",
+  "lock": {
+    "path": "requirements-chronos.txt",
+    "sha256": "fa2ba3e3fc086ebf27bc955f4aa56e7629b43138c565427e6827ced936abd95c"
+  },
+  "command": [
+    "python",
+    "ml/pipeline.py",
+    "--run-kind",
+    "publication",
+    "--include-final-audit",
+    "--chronos2-profile",
+    "published",
+    "--chronos2-device",
+    "auto",
+    "--resume"
+  ],
+  "chronos": {
+    "package": {
+      "status": "known",
+      "value": "2.3.1"
+    },
+    "model_id": "amazon/chronos-2",
+    "model_revision": "29ec3766d36d6f73f0696f85560a422f50e8498c"
+  },
+  "runtime": {
+    "python": "3.14.2",
+    "implementation": "CPython",
+    "os": "Darwin",
+    "os_release": "25.5.0",
+    "machine": "arm64",
+    "processor": {
+      "status": "known",
+      "value": "arm"
+    },
+    "torch": {
+      "package": {
+        "status": "known",
+        "value": "2.13.0"
+      },
+      "device": "mps",
+      "backend": {
+        "cuda_available": false,
+        "cuda_version": null,
+        "mps_available": true
+      }
+    }
+  },
+  "run_id": "941bbd3a1dd0cf23",
+  "run_manifest": "outputs/runs/941bbd3a1dd0cf23.json",
+  "output_hashes": {
+    "status": "post_run_migrated",
+    "scope": "model_artifacts",
+    "reason": "Artifact hashes authenticate the retained files now but were not all committed immutably at model-run completion."
+  },
+  "scope": "model_evidence",
+  "model_artifact_sha256": {
+    "outputs/submission.csv": "dd530527e961fa9f395f7a2bb00deed694ef75fff5488aea510e35076b1edaf9",
+    "outputs/cv_results.csv": "29973d7a211116f944e73eea25cf016c6359336fdaf2734e48184fee3ca6c1d5",
+    "outputs/cv_results_all.csv": "cc322766e0e668c885a78a486d70be23fd36b9c8df8092b472fe34dc0e6237b2",
+    "outputs/dev_summary.csv": "1252cd9e453f2a6b662144680c3eb35259292d0381685f321ef79e6f40c516e6",
+    "outputs/benchmark_summary.csv": "179aeff8828c42eada21b47cc8d2d225c8100e390b55ee0bf6a13c30140948e5",
+    "outputs/final_forecasts.parquet": "b4e6353d24df66f163a4827ac8cb69e96e828e51cbaaaae76463c996e8f1ac5e",
+    "outputs/oof_predictions.parquet": "2a8ca3e2998e494e84c205a74c486245733c4efd6ada5534318c296abc8046b4",
+    "outputs/strategy_by_horizon.csv": "29325c87fe02c4d95ba5630e4a00aaf5c5e0753eab9db904a79fb86890156d34",
+    "outputs/validation_strata_summary.csv": "d3e255421b92ab99c1b791ea70277db230e633bc36f04f89be78ee30f75c6c9d",
+    "outputs/test_aligned_scores.csv": "d78fe66a4256e0aa3849bce1c3c6e9645a2508fb731757eb03bbb2f8bc539480",
+    "outputs/prediction_diagnostics.csv": "3e1bc9eb255e2725d6b1dd62aa67c0b3ce55e02967433d15fa1b7ca12508205e",
+    "outputs/prediction_diagnostics_by_origin.csv": "4300e60cfae355c6b5be2dc661b2b4c2cbd2692402d8723cf123c467fe535463",
+    "outputs/channel_share_summary.csv": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "outputs/per_product_summary.csv": "c7056fafc400d464ffd78bd2b5c23248c73fb7373f267e038de1069a83f20510",
+    "outputs/top_decile_summary.csv": "fbeb048ec30c0c6311da781f845ca08f7dd0424cc48e64864277afbe082064e1",
+    "outputs/top_error_rows.csv": "2ebe1f5c58cd14f14e76f7808a82fac74227fd55d4354bce331f30ac575297b1",
+    "outputs/sanity_baseline.csv": "f40ccb4c9fd49789f1de7c772ed07fa23963a116f48db73a2cd535b6debbb92d",
+    "outputs/probabilistic_summary.csv": "c2daa7ebca53e0342ac7e83a3f0b5321efc1a5afe766572e9b5e1676d1b43b10",
+    "outputs/weight_sensitivity.csv": "05476a04d2c092e33297b1e3b940193ddb7712c7b60e4ae0837a6b3bc5f93fad",
+    "outputs/final_audit_summary.csv": "fbeb9f45bdf0179cd57ed239f144011b6ab63a6a478fa0ef0cae4fde4dfa4b6b"
+  },
+  "verification": {
+    "status": "incomplete",
+    "reason": "The run enabled --resume before checkpoint source/input/dependency/device identities and checkpoint hashes were bound into the immutable manifest. The local execution log reports zero reused folds and 19 trained folds, but that observation was not authenticated at run time.",
+    "pinned_components": {
+      "source_revision": true,
+      "input_hashes": true,
+      "dependency_lock_hash": true,
+      "chronos_package_and_model_revision": true
+    },
+    "checkpoint_identity_at_run": false
+  },
+  "checkpoint_provenance": {
+    "status": "post_run_observation_not_immutable_at_run",
+    "observed_reused_folds": 0,
+    "observed_trained_folds": 19,
+    "post_run_files_sha256": {
+      "outputs/checkpoints/direct/development/2022-02-01.pkl": "300f2dc6e1f09e486dd8a5ee18f01c0ed3c6ed8d7d312dc498a22bf4f477d882",
+      "outputs/checkpoints/direct/development/2022-06-15.pkl": "a5a78fdd92578fbb2b5b5396f0bdddf9cfd7258f9bc801d4ad0be7ee6c27dddb",
+      "outputs/checkpoints/direct/development/2022-11-20.pkl": "218eb1bc236ebb6aeae8a319959095491a3c2a2c53c077688acaff70f58bd0fe",
+      "outputs/checkpoints/direct/development/2023-01-10.pkl": "a9edec329d1a4262ec2fe7b12267822c6385017574db3ef2f0066a7516e6f52e",
+      "outputs/checkpoints/direct/development/2023-07-01.pkl": "84d584c7c3cf124ce3768da5a74bf543599fe057f8d5bdef79ae0253ea412e0c",
+      "outputs/checkpoints/direct/development/2023-11-24.pkl": "3071e192868775f0f611db61b9676fe4e6b06f4518c573ae57380208b597388a",
+      "outputs/checkpoints/direct/development/2023-12-18.pkl": "b8625568c1fc63df41181ee3d50b74b8cad07cfe32ca6d4ebdd1122a43057ae3",
+      "outputs/checkpoints/direct/development/2024-02-14.pkl": "fe673dd5def17dcbcff50ad3603fb03b17c93aa602e86171eca3a47ad3135bbc",
+      "outputs/checkpoints/direct/development/2024-06-20.pkl": "d12a290217d94b61ffd2682fb9b280d100b2625981414d4860fd1edaae04bfab",
+      "outputs/checkpoints/direct/development/2024-11-29.pkl": "7f0323f814748e171adad220a7888204ba70c526526ac627fa3bf727a972d1cd",
+      "outputs/checkpoints/direct/development/2024-12-20.pkl": "cb5589ffc8b0056416fca9733984d3350059df5b9f0aa342f56d7a4a6b2953de",
+      "outputs/checkpoints/direct/development/2025-02-10.pkl": "a039446b0007e120098b105944207706d125f1a34299844884b6863ee023fa7a",
+      "outputs/checkpoints/direct/final_audit/2024-01-17.pkl": "9dbf89e4d23a08c445a39369b85ba2131266030f0e42afd97c8bd90d5eca04da",
+      "outputs/checkpoints/direct/final_audit/2024-05-15.pkl": "9739ee951ba8e254fcfed632cc4279c198e4de1d4b51e25bf85b4a535ffc0375",
+      "outputs/checkpoints/direct/final_audit/2024-11-14.pkl": "ae6418c6032fbebf301b801485f8af64611926a0c9e22b82b51a0322f1a7433d",
+      "outputs/checkpoints/direct/recent_benchmark/2025-12-14.pkl": "a3a06bb5b7da9566ebf95364fc10fbc741fc6107ba3624e1e36b130d08436e64",
+      "outputs/checkpoints/direct/recent_benchmark/2025-12-21.pkl": "0d9815e389c47720d0a65e2b8a152dc968194949ccbf56c45d9cc915cacecd13",
+      "outputs/checkpoints/direct/recent_benchmark/2025-12-28.pkl": "8a81150c0344040efa819daa8293b447a17b3a4af055db48e68f40a554084ef0",
+      "outputs/checkpoints/direct/recent_benchmark/2026-01-04.pkl": "b2dadab835fa6959ad4d9fe27f0a192fb3970f99ac09b4228ba2c6fb53b6feeb"
+    }
+  }
+}

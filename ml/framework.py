@@ -87,6 +87,7 @@ class Config:
     # product/date keys and evaluation populations as every incumbent model.
     enable_chronos2: bool = False
     chronos2_model_id: str = "amazon/chronos-2"
+    chronos2_model_revision: str = "29ec3766d36d6f73f0696f85560a422f50e8498c"
     chronos2_device: str = "auto"       # auto | cpu | cuda | mps
     chronos2_dtype: str = "float32"     # auto | float32 | bfloat16 | float16
     chronos2_batch_size: int = 100

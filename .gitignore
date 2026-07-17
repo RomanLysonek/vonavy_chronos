@@ -12,11 +12,28 @@ __pycache__/
 # Runtime logs and caches
 *.log
 outputs/checkpoints/
+outputs/experiments/
 .huggingface/
 
 # Generated heavyweight model artifacts
 outputs/*.parquet
 outputs/*.png
+outputs/*.csv
+outputs/timings.json
+outputs/dashboard_manifest.json
+
+# Compact publication evidence is committed.
+!outputs/challenge_comparison.csv
+!outputs/sanity_baseline.csv
+!outputs/probabilistic_summary.csv
+!outputs/weight_sensitivity.csv
+!outputs/final_audit_summary.csv
+!outputs/SHA256SUMS
+!outputs/final_audit_consumed.json
+!outputs/runs/
+!outputs/runs/*.json
+!outputs/publications/
+!outputs/publications/*.json
 
 # Keep the lightweight checked-in dashboard snapshot
 !outputs/results.json

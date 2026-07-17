@@ -16,10 +16,15 @@ for (const name of ["common.js", "app.js", "model.js", "evaluation.js", "dataset
 }
 
 const data = JSON.parse(fs.readFileSync(path.join(staticDir, "results.json"), "utf8"));
-assert.strictEqual(data.schema_version, "vonavy-chronos-v1");
+assert.strictEqual(data.schema_version, "vonavy-chronos-v2");
 assert.deepStrictEqual(data.models.map((model) => model.key), ["NeuralNet", "Chronos2"]);
-assert.strictEqual(data.project.status, "awaiting_chronos");
-assert.deepStrictEqual(Object.keys(data.forecasts), ["NeuralNet"]);
+assert.strictEqual(data.project.status, "complete");
+assert.deepStrictEqual(Object.keys(data.forecasts), ["NeuralNet", "Chronos2"]);
+assert.strictEqual(data.probabilistic_evaluation.status, "evaluated");
+assert.ok(data.provenance.run_id);
+assert.strictEqual(data.provenance.verification.status, "incomplete");
+assert.strictEqual(data.publication_provenance.status, "authenticated");
+assert.ok(data.publication_provenance.publication_id);
 
 function assertNoLegacyModel(value) {
   if (Array.isArray(value)) return value.forEach(assertNoLegacyModel);
@@ -43,9 +48,22 @@ assert.ok(index.includes("Best NN vs Chronos-2"));
 assert.ok(!index.includes("One frozen incumbent"));
 assert.ok(!index.includes("No irrelevant leaderboard"));
 assert.ok(index.includes('<span class="brand-logo">NOTINO</span>'));
-assert.ok(index.includes('<span class="brand-tagline">VOŇAVÝ CHRONOS</span>'));
+assert.ok(index.includes('<span class="brand-tagline">/ Interview Assignment</span>'));
 assert.ok(!index.includes("VONAVY_CHRONOS"));
 assert.ok(!index.includes("Foundation Model Challenge"));
+assert.ok(index.includes("Sanity baseline"));
+assert.ok(index.includes("Evidence provenance"));
+for (const [label, href] of [
+  ["Classical Forecasting", "https://romanlysonek.github.io/vonava_predikce/"],
+  ["Anomaly Research", "https://romanlysonek.github.io/vonave_anomalie/"],
+  ["Chronos-2 Challenger", "https://romanlysonek.github.io/vonavy_chronos/"],
+]) {
+  assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(label));
+  assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(href));
+}
+assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
+  'current: true',
+));
 for (const legacy of ["XGBoost", "LightGBM", "Dynamic Ridge", "Moving Average", "Seasonal Naive", "Ensemble"]) {
   assert.ok(!index.includes(legacy), `legacy contender visible in index.html: ${legacy}`);
 }
@@ -70,6 +88,7 @@ for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.
   for (const fact of expectedPromoFacts) {
     assert.ok(promo[1].includes(fact), `${htmlName} has inconsistent promo fact: ${fact}`);
   }
+  assert.ok(html.includes('lang="en-GB"'));
 }
 assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
   'item.textContent = "Same Walk-Forward Test"',
@@ -79,6 +98,8 @@ const styles = fs.readFileSync(path.join(staticDir, "styles.css"), "utf8");
 assert.ok(styles.includes("scrollbar-gutter: stable"));
 assert.ok(styles.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
 assert.ok(styles.includes(".promo-bar > *"));
+assert.ok(styles.includes("--content-max: 1280px"));
+assert.ok(styles.includes(".suite-switcher"));
 for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
   const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
   assert.ok(html.includes("styles.css?v=chronos-3"), `${htmlName} uses stale strip CSS`);
@@ -88,5 +109,10 @@ const docsIndex = fs.readFileSync(path.join(docsDir, "index.html"), "utf8");
 assert.ok(docsIndex.includes("window.STATIC_DASHBOARD = true"));
 assert.ok(!docsIndex.includes('href="/static/'));
 assert.ok(!docsIndex.includes('src="/static/'));
+assert.ok(!docsIndex.includes('href="/'));
+assert.deepStrictEqual(
+  fs.readFileSync(path.join(root, "outputs", "results.json")),
+  fs.readFileSync(path.join(staticDir, "results.json")),
+);
 
 console.log("webapp challenge smoke checks passed");

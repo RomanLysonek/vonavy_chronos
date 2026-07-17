@@ -3,9 +3,9 @@ let productChart = null;
 let showHistory = true;
 
 function currentSlug() {
-  if (window.STATIC_DASHBOARD) return new URLSearchParams(window.location.search).get("model") || "our-best";
+  if (window.STATIC_DASHBOARD) return new URLSearchParams(window.location.search).get("model") || "neuralnet";
   const parts = window.location.pathname.split("/").filter(Boolean);
-  return parts[parts.length - 1] || "our-best";
+  return parts[parts.length - 1] || "neuralnet";
 }
 
 function methodology(data, model) {
@@ -30,7 +30,7 @@ function methodology(data, model) {
       ["Cross-series context", cfg.chronos2_cross_learning ? "All 30 products may be processed jointly so the model can exploit cross-series structure." : "Cross-learning is disabled; each product is forecast independently."],
       ["Known-future information", cfg.chronos2_covariates ? "Calendar, campaign, discount, price-relative and effective-price features are supplied only where their target-date values are known." : "Covariates are disabled for a target-only zero-shot ablation."],
       ["Leakage and stockouts", "Unavailable quantities and synthetic calendar gaps are masked as missing history, never recoded as zero. Future availability and future quantities are not supplied."],
-      ["Uncertainty and fallback", `Requested quantiles: ${(cfg.chronos2_quantile_levels || [0.1, 0.5, 0.9]).join(", ")}. Products without usable context fall back explicitly to the incumbent seasonal anchor and are counted in diagnostics.`],
+      ["Uncertainty and fallback", data.probabilistic_evaluation?.status === "evaluated" ? "q10/q50/q90 have real OOF pinball and interval diagnostics; the explorer shows the 80% band. Products without usable context use the explicit seasonal fallback." : "q10/q50/q90 were requested but are not presented as evaluated until real OOF calibration metrics exist."],
     ],
   };
 }
@@ -125,7 +125,7 @@ function renderHeadToHead(data, model) {
   const items = [
     ["Recent-benchmark verdict", `${model.label} ${verdict} on global WAPE.`],
     ["Coverage", `${fmt(current.coverage, 3)} coverage across ${current.n_scored ?? "—"} scored rows.`],
-    ["Bias direction", `${fmt(current.Bias)} average signed error; positive means over-forecasting.`],
+    ["Bias direction", `${fmt(current.Bias)} average signed error; positive is over-forecasting, negative is under-forecasting, and zero is neutral.`],
     ["Selection role", model.key === canonicalModel(data) ? "Development-selected final forecast." : "Challenger retained as a separately exported forecast, not blended into the winner."],
   ];
   document.getElementById("head-to-head-list").innerHTML = items.map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("");
@@ -160,6 +160,26 @@ function renderProduct(data, model, productId) {
       backgroundColor: model.color,
       pointRadius: 3,
       borderWidth: 3,
+    });
+  }
+  const interval = model.key === "Chronos2" && data.probabilistic_evaluation?.status === "evaluated"
+    ? data.probabilistic_evaluation?.forecasts?.Chronos2?.[productId]
+    : null;
+  if (interval) {
+    datasets.push({
+      label: "q90",
+      data: interval.dates.map((date, index) => ({ x: date, y: interval.q90[index] })),
+      borderColor: "transparent",
+      backgroundColor: "rgba(255, 153, 0, 0.16)",
+      pointRadius: 0,
+    });
+    datasets.push({
+      label: "80% interval",
+      data: interval.dates.map((date, index) => ({ x: date, y: interval.q10[index] })),
+      borderColor: "transparent",
+      backgroundColor: "rgba(255, 153, 0, 0.16)",
+      pointRadius: 0,
+      fill: "-1",
     });
   }
   if (productChart) productChart.destroy();
