@@ -1,0 +1,11 @@
+{
+  "schema_version": "final-audit-consumption-v1",
+  "run_id": "941bbd3a1dd0cf23",
+  "source_revision": "c0f0cc1a3c14558f6c123bce88cf85f162b6e2de",
+  "consumed_at": "2026-07-17T15:03:09.381592+00:00",
+  "origins": [
+    "2024-01-17",
+    "2024-05-15",
+    "2024-11-14"
+  ]
+}

@@ -1,0 +1,7 @@
+scheme,strategy,model,metric,test_aligned_score,weight_sum,strata_present,selection_eligible,winner
+frozen_test_aligned,direct,Chronos2,WAPE,0.32139269224495126,1.0,"holiday_event,regular,winter_test_like",True,NeuralNet
+frozen_test_aligned,direct,NeuralNet,WAPE,0.27376275321709026,1.0,"holiday_event,regular,winter_test_like",True,NeuralNet
+equal_strata,direct,Chronos2,WAPE,0.34939107242857104,1.0,"holiday_event,regular,winter_test_like",False,NeuralNet
+equal_strata,direct,NeuralNet,WAPE,0.2893750667905865,1.0,"holiday_event,regular,winter_test_like",False,NeuralNet
+global_pooled,direct,NeuralNet,WAPE,0.30241815597277194,,pooled_rows,False,NeuralNet
+global_pooled,direct,Chronos2,WAPE,0.3730248791639689,,pooled_rows,False,NeuralNet

@@ -1,9 +1,9 @@
 const CHALLENGE_MODELS = ["NeuralNet", "Chronos2"];
 const NUMBER_LOCALE = "en-GB";
 const SUITE_APPS = [
-  { label: "Forecasting", href: "https://romanlysonek.github.io/vonava_predikce/" },
-  { label: "Anomaly detection", href: "https://romanlysonek.github.io/vonave_anomalie/" },
-  { label: "Chronos-2 challenge", href: "https://romanlysonek.github.io/vonavy_chronos/" },
+  { label: "Classical Forecasting", href: "https://romanlysonek.github.io/vonava_predikce/" },
+  { label: "Anomaly Research", href: "https://romanlysonek.github.io/vonave_anomalie/" },
+  { label: "Chronos-2 Challenger", href: "https://romanlysonek.github.io/vonavy_chronos/", current: true },
 ];
 
 async function loadResults() {
@@ -59,14 +59,11 @@ function renderSuiteSwitcher() {
   if (typeof document === "undefined") return;
   const heroTop = document.querySelector(".hero-top");
   if (!heroTop || heroTop.querySelector(".suite-switcher")) return;
-  const currentPath = window.location.pathname;
   const switcher = document.createElement("nav");
   switcher.className = "suite-switcher";
   switcher.setAttribute("aria-label", "Interview assignment suite");
   switcher.innerHTML = SUITE_APPS.map((app) => {
-    const current = currentPath.includes("/vonavy_chronos/");
-    const isChronos = app.href.includes("/vonavy_chronos/");
-    return `<a href="${app.href}"${current && isChronos ? ' aria-current="page"' : ""}>${app.label}</a>`;
+    return `<a href="${app.href}"${app.current ? ' aria-current="page"' : ""}>${app.label}</a>`;
   }).join("");
   heroTop.appendChild(switcher);
 }

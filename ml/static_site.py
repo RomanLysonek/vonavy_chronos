@@ -15,6 +15,9 @@ GENERATED_README = (
 
 def _static_html(source: str) -> str:
     result = source.replace("/static/", "./")
+    result = result.replace('href="/dataset"', 'href="./dataset.html"')
+    result = result.replace('href="/evaluation"', 'href="./evaluation.html"')
+    result = result.replace('href="/"', 'href="./index.html"')
     marker = '<script src="./common.js'
     if marker in result and "window.STATIC_DASHBOARD" not in result:
         result = result.replace(

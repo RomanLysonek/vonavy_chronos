@@ -1,0 +1,127 @@
+{
+  "schema_version": "chronos-run-v1",
+  "generated_at": "2026-07-17T15:03:09.381592+00:00",
+  "run_kind": "publication",
+  "source": {
+    "revision": "c0f0cc1a3c14558f6c123bce88cf85f162b6e2de",
+    "tree": "2900671b1083551d5382135669e5cd9b014c550c",
+    "dirty": false,
+    "dirty_paths": []
+  },
+  "inputs_sha256": {
+    "data/train_data.parquet": "23417029151028424ccdb433fe931779164e999aaa54b262dd81253686e8b613",
+    "data/test_data.parquet": "b0dbd35dd37e8f2048ed481ea7c98b38b56aec365e7d41170e7abedcb2f14526"
+  },
+  "config_sha256": "3d6bc7f7ac71d1c8da7fc2b1fc29742ac76b0911f4001cce521f39d03a211b24",
+  "lock": {
+    "path": "requirements-chronos.txt",
+    "sha256": "fa2ba3e3fc086ebf27bc955f4aa56e7629b43138c565427e6827ced936abd95c"
+  },
+  "command": [
+    "python",
+    "ml/pipeline.py",
+    "--run-kind",
+    "publication",
+    "--include-final-audit",
+    "--chronos2-profile",
+    "published",
+    "--chronos2-device",
+    "auto",
+    "--resume"
+  ],
+  "chronos": {
+    "package": {
+      "status": "known",
+      "value": "2.3.1"
+    },
+    "model_id": "amazon/chronos-2",
+    "model_revision": "29ec3766d36d6f73f0696f85560a422f50e8498c"
+  },
+  "runtime": {
+    "python": "3.14.2",
+    "implementation": "CPython",
+    "os": "Darwin",
+    "os_release": "25.5.0",
+    "machine": "arm64",
+    "processor": {
+      "status": "known",
+      "value": "arm"
+    },
+    "torch": {
+      "package": {
+        "status": "known",
+        "value": "2.13.0"
+      },
+      "device": "mps",
+      "backend": {
+        "cuda_available": false,
+        "cuda_version": null,
+        "mps_available": true
+      }
+    }
+  },
+  "run_id": "941bbd3a1dd0cf23",
+  "run_manifest": "outputs/runs/941bbd3a1dd0cf23.json",
+  "output_hashes": {
+    "status": "recorded_in_run_manifest",
+    "manifest": "outputs/runs/941bbd3a1dd0cf23.json"
+  },
+  "output_sha256": {
+    "docs/.nojekyll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/README.md": "6f0ff25cad6640d4a5ec96c7629edff9400261f4d72a7ac83c06c586c10b2c5d",
+    "docs/app.js": "9868c9074e1484310d1fef0564e1dfb2c88e09103bb1816e54d02d0e47ea21dc",
+    "docs/common.js": "38fc9a7b074f15f396a0fa42d59c3b79d71345fbd0ea8f39a865d3ec0ba83e72",
+    "docs/dataset.html": "0f029babee246669454f6f0b77e35ca36d4f9dcecbd175c7518c89c88e5a1a96",
+    "docs/dataset.js": "d0f18a721c084b6c5a457d88c858f9fee284ea6caea059596091c93f0799edcf",
+    "docs/evaluation.html": "4cdf19e279818286d923652e32af8eb5abce3c3bd9eaf44698e674cc46d7db7c",
+    "docs/evaluation.js": "a37468d25015ef543d0bfc7abf0cb03f5b95c7d6477239898f007b790e64984a",
+    "docs/favicon.svg": "91ad1623124a06a028beb2b77b32645c4754fec7580697780d0c2e606d9b07ea",
+    "docs/index.html": "21d3ff11b4233c9a6968e54ba79d7d0ca35d5c498f77ec0a8129d8a6aa7dba4f",
+    "docs/model.html": "4a82a9f1a2b7f03c8d4c82d1febc321ee3fc43afb2092e6c8458d7d4d2acd977",
+    "docs/model.js": "726dd8511fb0c8f30f483c0fad5ef144542ec04056ed26b229e8df53683de91e",
+    "docs/results.json": "dc3638d25da499d11559ec6204da6ab5f008e7e8ecbd6409f8fa8c4d22f2dcb0",
+    "docs/styles.css": "8cf628659181a49ed421666fc0bba2e428c02de7a313c178cd8bfdeff24d7f8d",
+    "outputs/README.md": "150134231ac06ad45fcf5105ab322ba145ff33ec95a73890f31f64f8afe8cb71",
+    "outputs/benchmark_summary.csv": "179aeff8828c42eada21b47cc8d2d225c8100e390b55ee0bf6a13c30140948e5",
+    "outputs/challenge_comparison.csv": "5fc2847ab0955275f2f0fb88f3f3ee3be4f894c3cb4b401dc03df3f40efa61ed",
+    "outputs/channel_share_summary.csv": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "outputs/cv_results.csv": "29973d7a211116f944e73eea25cf016c6359336fdaf2734e48184fee3ca6c1d5",
+    "outputs/cv_results_all.csv": "cc322766e0e668c885a78a486d70be23fd36b9c8df8092b472fe34dc0e6237b2",
+    "outputs/dev_summary.csv": "1252cd9e453f2a6b662144680c3eb35259292d0381685f321ef79e6f40c516e6",
+    "outputs/final_audit_consumed.json": "d7c3d4b589f2ebe59d55e2ce5754162a295420c5958975641444fa66086f97ae",
+    "outputs/final_audit_summary.csv": "fbeb9f45bdf0179cd57ed239f144011b6ab63a6a478fa0ef0cae4fde4dfa4b6b",
+    "outputs/final_forecasts.parquet": "b4e6353d24df66f163a4827ac8cb69e96e828e51cbaaaae76463c996e8f1ac5e",
+    "outputs/oof_predictions.parquet": "2a8ca3e2998e494e84c205a74c486245733c4efd6ada5534318c296abc8046b4",
+    "outputs/per_product_summary.csv": "c7056fafc400d464ffd78bd2b5c23248c73fb7373f267e038de1069a83f20510",
+    "outputs/prediction_diagnostics.csv": "3e1bc9eb255e2725d6b1dd62aa67c0b3ce55e02967433d15fa1b7ca12508205e",
+    "outputs/prediction_diagnostics_by_origin.csv": "4300e60cfae355c6b5be2dc661b2b4c2cbd2692402d8723cf123c467fe535463",
+    "outputs/probabilistic_summary.csv": "c2daa7ebca53e0342ac7e83a3f0b5321efc1a5afe766572e9b5e1676d1b43b10",
+    "outputs/results.json": "dc3638d25da499d11559ec6204da6ab5f008e7e8ecbd6409f8fa8c4d22f2dcb0",
+    "outputs/sanity_baseline.csv": "f40ccb4c9fd49789f1de7c772ed07fa23963a116f48db73a2cd535b6debbb92d",
+    "outputs/strategy_by_horizon.csv": "29325c87fe02c4d95ba5630e4a00aaf5c5e0753eab9db904a79fb86890156d34",
+    "outputs/submission.csv": "dd530527e961fa9f395f7a2bb00deed694ef75fff5488aea510e35076b1edaf9",
+    "outputs/submission.parquet": "6e80083e7f530a1832e29e531cf55c2685b41964d5e22365dd4f7b49ec482f14",
+    "outputs/submission_best_nn.csv": "dd530527e961fa9f395f7a2bb00deed694ef75fff5488aea510e35076b1edaf9",
+    "outputs/submission_best_nn.parquet": "6e80083e7f530a1832e29e531cf55c2685b41964d5e22365dd4f7b49ec482f14",
+    "outputs/submission_chronos2.csv": "f8ca65490ae3bebc1aea7c1d4f2ea58705d1720bc446bc11e3b61f4a6e8ef224",
+    "outputs/submission_chronos2.parquet": "3b2210087cc6e9577396bf5df31a7331be818e79171c174e72301fc7f5e9687b",
+    "outputs/test_aligned_scores.csv": "d78fe66a4256e0aa3849bce1c3c6e9645a2508fb731757eb03bbb2f8bc539480",
+    "outputs/timings.json": "a0a4db8f69bfe093e70223e7e0421023218918bdd6f4c1cefbeecd3111c62200",
+    "outputs/top_decile_summary.csv": "fbeb048ec30c0c6311da781f845ca08f7dd0424cc48e64864277afbe082064e1",
+    "outputs/top_error_rows.csv": "2ebe1f5c58cd14f14e76f7808a82fac74227fd55d4354bce331f30ac575297b1",
+    "outputs/validation_strata_summary.csv": "d3e255421b92ab99c1b791ea70277db230e633bc36f04f89be78ee30f75c6c9d",
+    "outputs/weight_sensitivity.csv": "05476a04d2c092e33297b1e3b940193ddb7712c7b60e4ae0837a6b3bc5f93fad",
+    "webapp/static/app.js": "9868c9074e1484310d1fef0564e1dfb2c88e09103bb1816e54d02d0e47ea21dc",
+    "webapp/static/common.js": "38fc9a7b074f15f396a0fa42d59c3b79d71345fbd0ea8f39a865d3ec0ba83e72",
+    "webapp/static/dataset.html": "defd65de2a766cc621ee932df039e330a391755ca1ee7c4da8c5ed77b6d0db92",
+    "webapp/static/dataset.js": "d0f18a721c084b6c5a457d88c858f9fee284ea6caea059596091c93f0799edcf",
+    "webapp/static/evaluation.html": "ef523f73eb933bf496cfed6969cbfc6f9424512de9ea739ba8514ae459f3781c",
+    "webapp/static/evaluation.js": "a37468d25015ef543d0bfc7abf0cb03f5b95c7d6477239898f007b790e64984a",
+    "webapp/static/favicon.svg": "91ad1623124a06a028beb2b77b32645c4754fec7580697780d0c2e606d9b07ea",
+    "webapp/static/index.html": "fe35081bc7c3ce6d2265b30dedc3fa59711b0ac7929cba97c9d11719aa36120f",
+    "webapp/static/model.html": "251db05d45016ce248eb241194e88ed2397c977365e095f0890baf1db6aa2cd2",
+    "webapp/static/model.js": "726dd8511fb0c8f30f483c0fad5ef144542ec04056ed26b229e8df53683de91e",
+    "webapp/static/results.json": "dc3638d25da499d11559ec6204da6ab5f008e7e8ecbd6409f8fa8c4d22f2dcb0",
+    "webapp/static/styles.css": "8cf628659181a49ed421666fc0bba2e428c02de7a313c178cd8bfdeff24d7f8d"
+  }
+}

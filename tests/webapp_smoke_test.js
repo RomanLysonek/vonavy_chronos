@@ -50,6 +50,17 @@ assert.ok(!index.includes("VONAVY_CHRONOS"));
 assert.ok(!index.includes("Foundation Model Challenge"));
 assert.ok(index.includes("Sanity baseline"));
 assert.ok(index.includes("Published provenance"));
+for (const [label, href] of [
+  ["Classical Forecasting", "https://romanlysonek.github.io/vonava_predikce/"],
+  ["Anomaly Research", "https://romanlysonek.github.io/vonave_anomalie/"],
+  ["Chronos-2 Challenger", "https://romanlysonek.github.io/vonavy_chronos/"],
+]) {
+  assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(label));
+  assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(href));
+}
+assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
+  'current: true',
+));
 for (const legacy of ["XGBoost", "LightGBM", "Dynamic Ridge", "Moving Average", "Seasonal Naive", "Ensemble"]) {
   assert.ok(!index.includes(legacy), `legacy contender visible in index.html: ${legacy}`);
 }
@@ -95,6 +106,7 @@ const docsIndex = fs.readFileSync(path.join(docsDir, "index.html"), "utf8");
 assert.ok(docsIndex.includes("window.STATIC_DASHBOARD = true"));
 assert.ok(!docsIndex.includes('href="/static/'));
 assert.ok(!docsIndex.includes('src="/static/'));
+assert.ok(!docsIndex.includes('href="/'));
 assert.deepStrictEqual(
   fs.readFileSync(path.join(root, "outputs", "results.json")),
   fs.readFileSync(path.join(staticDir, "results.json")),

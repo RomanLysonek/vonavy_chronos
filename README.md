@@ -13,9 +13,9 @@ The published answer is **no**. Chronos-2 is technically suitable as a same-spli
 
 ## Portfolio suite
 
-- [Forecasting](https://romanlysonek.github.io/vonava_predikce/)
-- [Anomaly detection](https://romanlysonek.github.io/vonave_anomalie/)
-- [Chronos-2 challenge](https://romanlysonek.github.io/vonavy_chronos/)
+- [Classical Forecasting](https://romanlysonek.github.io/vonava_predikce/)
+- [Anomaly Research](https://romanlysonek.github.io/vonave_anomalie/)
+- [Chronos-2 Challenger](https://romanlysonek.github.io/vonavy_chronos/)
 
 All three applications are static GitHub Pages sites. In this repository, `webapp/static/` is authored source and `docs/` is generated-only.
 

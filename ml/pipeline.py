@@ -1778,7 +1778,9 @@ def export_results_json(
             return []
         if "model" in filtered.columns:
             filtered = order_models(filtered)
-        return filtered.round(digits).to_dict(orient="records")
+        numeric_columns = filtered.select_dtypes(include=[np.number]).columns
+        filtered.loc[:, numeric_columns] = filtered[numeric_columns].round(digits)
+        return filtered.to_dict(orient="records")
 
     dev_summary = challenge_only(dev_summary)
     benchmark_summary = challenge_only(benchmark_summary)
@@ -1900,7 +1902,7 @@ def export_results_json(
             incumbent = float(indexed.loc["NeuralNet", selection_metric])
             challenger = float(indexed.loc["Chronos2", selection_metric])
             if np.isfinite(incumbent) and incumbent != 0 and np.isfinite(challenger):
-                relative = challenger / incumbent - 1.0
+                relative = round(challenger / incumbent - 1.0, 12)
         return {
             "winner": winner,
             "rows": records(rows),
