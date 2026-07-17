@@ -54,6 +54,8 @@ class FakeChronosPipeline:
         output["0.1"] = base_point - 5.0
         output["0.5"] = base_point
         output["0.9"] = base_point + 5.0
+        if self.make_first_nonfinite:
+            output.iloc[0, output.columns.get_loc("0.5")] = np.nan
         return output.iloc[::-1].reset_index(drop=True)
 
 
@@ -135,10 +137,8 @@ def test_chronos2_cli_and_registry_are_direct_only():
     options = parse_args([
         "--chronos2", "on",
         "--chronos2-device", "cpu",
-        "--chronos2-context-length", "512",
+        "--chronos2-profile", "target-only",
         "--chronos2-batch-size", "24",
-        "--chronos2-cross-learning", "off",
-        "--chronos2-covariates", "off",
         "--submission-model", "Chronos2",
     ])
     cfg = Config()
@@ -146,10 +146,11 @@ def test_chronos2_cli_and_registry_are_direct_only():
 
     assert options.submission_model is SubmissionModel.CHRONOS2
     assert runtime["enabled"] is True
-    assert cfg.chronos2_context_length == 512
+    assert cfg.chronos2_context_length is None
     assert cfg.chronos2_batch_size == 24
     assert cfg.chronos2_cross_learning is False
     assert cfg.chronos2_covariates is False
+    assert cfg.chronos2_model_revision == "29ec3766d36d6f73f0696f85560a422f50e8498c"
     assert "Chronos2" in MODEL_ORDER
     assert MODEL_STRATEGY_SUPPORT["Chronos2"] == {"direct"}
     assert MODEL_META["Chronos2"]["source_url"].endswith("amazon/chronos-2")

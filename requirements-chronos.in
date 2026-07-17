@@ -1,0 +1,3 @@
+# Optional zero-shot foundation-model challenger.
+# Kept outside the core uv.lock so static serving does not install inference.
+chronos-forecasting==2.3.1

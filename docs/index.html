@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -21,7 +21,7 @@
     <div class="hero-top">
       <div class="brand">
         <span class="brand-logo">NOTINO</span>
-        <span class="brand-tagline">VOŇAVÝ CHRONOS</span>
+        <span class="brand-tagline">/ Interview Assignment</span>
       </div>
       <div class="hero-title-block">
         <h1>Best NN vs Chronos-2</h1>
@@ -57,7 +57,7 @@
       <div class="panel-header row">
         <div>
           <h2>The head-to-head</h2>
-          <p id="comparison-context">Recent-benchmark OOF · common purchasable product-days · global aggregation</p>
+          <p id="comparison-context">Previously inspected recent diagnostic · common purchasable product-days · global aggregation</p>
         </div>
         <span class="winner-badge" id="benchmark-badge">—</span>
       </div>
@@ -67,7 +67,7 @@
     <section class="panel-grid">
       <section class="panel">
         <div class="panel-header">
-          <h2>Recent benchmark</h2>
+          <h2>Recent diagnostic</h2>
           <p>Lower is better; WAPE is the primary decision metric</p>
         </div>
         <div class="chart-wrap"><canvas id="chart-comparison"></canvas></div>
@@ -134,9 +134,31 @@
       <section class="panel">
         <div class="panel-header">
           <h2>Per-product verdict</h2>
-          <p>Count of products won on recent-benchmark WAPE</p>
+          <p>Count of products won on the previously inspected recent diagnostic</p>
         </div>
         <div class="product-verdict" id="product-verdict"></div>
+      </section>
+    </section>
+
+    <section class="panel-grid evidence-grid">
+      <section class="panel">
+        <div class="panel-header"><h2>Sanity baseline</h2><p>Same split and rows; supporting evidence, not another leaderboard.</p></div>
+        <div class="table-wrap"><table class="data-table" id="baseline-table"><thead><tr><th>Estimator</th><th>WAPE</th><th>MAE</th><th>Bias</th><th>n</th></tr></thead><tbody></tbody></table></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Probabilistic evaluation</h2><p>q10/q50/q90 are shown only when real OOF calibration evidence exists.</p></div>
+        <div class="definition-list" id="probabilistic-evidence"></div>
+      </section>
+    </section>
+
+    <section class="panel-grid evidence-grid">
+      <section class="panel">
+        <div class="panel-header"><h2>Weight sensitivity</h2><p>The frozen 60/25/15 selection is not retuned from these views.</p></div>
+        <div class="table-wrap"><table class="data-table" id="weight-table"><thead><tr><th>View</th><th>Best NN</th><th>Chronos-2</th><th>Winner</th></tr></thead><tbody></tbody></table></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Published provenance</h2><p>Compact immutable identity for this evidence run.</p></div>
+        <div class="definition-list" id="provenance-list"></div>
       </section>
     </section>
 
@@ -169,7 +191,7 @@
 
   <footer><p id="footer-method-text">Loading challenge method…</p></footer>
   <script>window.STATIC_DASHBOARD = true;</script>
-  <script src="./common.js?v=chronos-2"></script>
-  <script src="./app.js?v=chronos-1"></script>
+  <script src="./common.js?v=chronos-4"></script>
+  <script src="./app.js?v=chronos-4"></script>
 </body>
 </html>

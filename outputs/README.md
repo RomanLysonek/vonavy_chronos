@@ -1,5 +1,7 @@
-# Outputs
+# Published outputs
 
-`results.json` is a lightweight, incumbent-only placeholder used to render the dashboard before the Chronos weights are executed. It deliberately marks the challenge as `awaiting_chronos`.
+`results.json` is the canonical complete dashboard payload. It is copied to `webapp/static/results.json` and then into generated `docs/results.json`.
 
-Run `ml/pipeline.py` to replace it with the complete two-model comparison and generate the CSV/Parquet artifacts documented in the repository README.
+Compact committed evidence includes the same-row seasonal baseline, probabilistic diagnostics, weight sensitivity, final-audit summary, audit-consumption marker, immutable run record, and SHA-256 list. Heavy parquet/checkpoint artifacts are reproducible but gitignored.
+
+Run `python ml/publish_static.py --check` to verify static parity. `ml/export_results.py` rebuilds the payload only when the full persisted artifacts from a pipeline run are available.

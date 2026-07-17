@@ -14,13 +14,12 @@ import json
 import os
 import pickle
 import shutil
+import sys
 import time
-import warnings
 from dataclasses import asdict, dataclass
 from enum import Enum
 from datetime import datetime, timezone
-
-warnings.filterwarnings("ignore")
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -51,9 +50,16 @@ from models.neural_net import (
     resolve_training_backend, train_model,
 )
 from dashboard_artifacts import (
-    publish_static_dashboard,
     summarize_per_product_oof,
+    summarize_probabilistic_oof,
+    summarize_sanity_baseline,
     summarize_top_deciles,
+)
+from static_site import publish_static_dashboard
+from provenance import (
+    build_run_provenance,
+    output_hashes,
+    write_json_atomic,
 )
 
 np.random.seed(CFG.seed)
@@ -106,14 +112,15 @@ class RuntimeOptions:
     channel_aux_weight: float | None = None
     channel_share_smoothing: float | None = None
     chronos2: str = "on"
+    chronos2_profile: str = "published"
     chronos2_model_id: str = "amazon/chronos-2"
+    chronos2_model_revision: str = "29ec3766d36d6f73f0696f85560a422f50e8498c"
     chronos2_device: str = "auto"
     chronos2_dtype: str = "float32"
     chronos2_batch_size: int = 100
-    chronos2_context_length: str = "auto"
-    chronos2_cross_learning: str = "on"
-    chronos2_covariates: str = "on"
-    chronos2_quantiles: str = "0.1,0.5,0.9"
+    run_kind: str = "development"
+    include_final_audit: bool = False
+    plot: bool = False
 
 
 def resolve_strategies(strategy: ForecastStrategy) -> tuple[ForecastStrategy, ...]:
@@ -173,7 +180,20 @@ def parse_args(argv=None) -> RuntimeOptions:
         "--chronos2", choices=["on", "off"], default="on",
         help="Run Chronos-2; off is retained only for incumbent smoke tests",
     )
+    parser.add_argument(
+        "--chronos2-profile",
+        choices=[
+            "published", "target-only", "no-cross-learning",
+            "context-64", "context-128", "context-256",
+        ],
+        default="published",
+        help="Bounded zero-shot inference profile; no profile fine-tunes Chronos",
+    )
     parser.add_argument("--chronos2-model-id", default="amazon/chronos-2")
+    parser.add_argument(
+        "--chronos2-model-revision",
+        default="29ec3766d36d6f73f0696f85560a422f50e8498c",
+    )
     parser.add_argument(
         "--chronos2-device", choices=["auto", "cpu", "cuda", "mps"], default="auto"
     )
@@ -184,47 +204,28 @@ def parse_args(argv=None) -> RuntimeOptions:
     )
     parser.add_argument("--chronos2-batch-size", type=int, default=100)
     parser.add_argument(
-        "--chronos2-context-length", default="auto",
-        help="Positive integer or auto",
+        "--run-kind",
+        choices=["development", "publication", "reproduction"],
+        default="development",
     )
     parser.add_argument(
-        "--chronos2-cross-learning", choices=["on", "off"], default="on"
+        "--include-final-audit",
+        action="store_true",
+        help="Run reserved final-audit origins; publication consumes them",
     )
     parser.add_argument(
-        "--chronos2-covariates", choices=["on", "off"], default="on"
-    )
-    parser.add_argument(
-        "--chronos2-quantiles", default="0.1,0.5,0.9",
-        help="Unique sorted comma-separated quantiles strictly between 0 and 1",
+        "--plot",
+        action="store_true",
+        help="Generate the optional matplotlib forecast plot and fail if it cannot be written",
     )
     args = parser.parse_args(argv)
 
     if args.chronos2_batch_size <= 0:
         parser.error("--chronos2-batch-size must be positive")
-    if args.chronos2_context_length != "auto":
-        try:
-            context_length = int(args.chronos2_context_length)
-        except ValueError:
-            parser.error("--chronos2-context-length must be 'auto' or a positive integer")
-        if context_length <= 0:
-            parser.error("--chronos2-context-length must be positive")
-        args.chronos2_context_length = str(context_length)
-    try:
-        quantiles = tuple(
-            float(part.strip())
-            for part in args.chronos2_quantiles.split(",")
-            if part.strip()
-        )
-    except ValueError:
-        parser.error("--chronos2-quantiles must be comma-separated numbers")
-    if (
-        not quantiles
-        or any(not 0.0 < quantile < 1.0 for quantile in quantiles)
-        or tuple(sorted(set(quantiles))) != quantiles
-    ):
-        parser.error(
-            "--chronos2-quantiles must be unique, sorted, and strictly between 0 and 1"
-        )
+    if args.include_final_audit and args.run_kind == "development":
+        parser.error("--include-final-audit requires publication or reproduction")
+    if args.run_kind == "publication" and args.chronos2_profile != "published":
+        parser.error("Publication runs require --chronos2-profile published")
 
     return RuntimeOptions(
         forecast_strategy=ForecastStrategy(args.forecast_strategy),
@@ -237,14 +238,15 @@ def parse_args(argv=None) -> RuntimeOptions:
         checkpoint_dir=args.checkpoint_dir,
         nn_batch_size="512",
         chronos2=args.chronos2,
+        chronos2_profile=args.chronos2_profile,
         chronos2_model_id=args.chronos2_model_id,
+        chronos2_model_revision=args.chronos2_model_revision,
         chronos2_device=args.chronos2_device,
         chronos2_dtype=args.chronos2_dtype,
         chronos2_batch_size=args.chronos2_batch_size,
-        chronos2_context_length=args.chronos2_context_length,
-        chronos2_cross_learning=args.chronos2_cross_learning,
-        chronos2_covariates=args.chronos2_covariates,
-        chronos2_quantiles=args.chronos2_quantiles,
+        run_kind=args.run_kind,
+        include_final_audit=args.include_final_audit,
+        plot=args.plot,
     )
 
 def _parse_optional_days(value, *, none_token: str, cast):
@@ -399,26 +401,41 @@ def chronos2_quantile_suffix(quantile: float) -> str:
 
 def configure_chronos2_runtime(cfg: Config, options: RuntimeOptions) -> dict:
     """Configure the optional zero-shot foundation-model challenger."""
+    profile_path = Path(__file__).with_name("chronos2_profiles.json")
+    profile_payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    profiles = profile_payload.get("profiles")
+    if not isinstance(profiles, dict) or options.chronos2_profile not in profiles:
+        raise ValueError(f"Unknown Chronos-2 profile {options.chronos2_profile!r}")
+    profile = profiles[options.chronos2_profile]
+    required = {
+        "cross_learning", "covariates", "context_length",
+        "quantile_levels", "publication_eligible",
+    }
+    if not isinstance(profile, dict) or not required.issubset(profile):
+        raise ValueError(f"Invalid Chronos-2 profile {options.chronos2_profile!r}")
+    if options.run_kind == "publication" and not profile["publication_eligible"]:
+        raise ValueError("Publication requires a publication-eligible Chronos profile")
     cfg.enable_chronos2 = options.chronos2 == "on"
     cfg.chronos2_model_id = str(options.chronos2_model_id)
+    cfg.chronos2_model_revision = str(options.chronos2_model_revision)
     cfg.chronos2_device = str(options.chronos2_device)
     cfg.chronos2_dtype = str(options.chronos2_dtype)
     cfg.chronos2_batch_size = int(options.chronos2_batch_size)
-    cfg.chronos2_context_length = (
-        None
-        if options.chronos2_context_length == "auto"
-        else int(options.chronos2_context_length)
-    )
-    cfg.chronos2_cross_learning = options.chronos2_cross_learning == "on"
-    cfg.chronos2_covariates = options.chronos2_covariates == "on"
+    cfg.chronos2_context_length = profile["context_length"]
+    cfg.chronos2_cross_learning = bool(profile["cross_learning"])
+    cfg.chronos2_covariates = bool(profile["covariates"])
     cfg.chronos2_quantile_levels = tuple(
-        float(part.strip())
-        for part in options.chronos2_quantiles.split(",")
-        if part.strip()
+        float(level) for level in profile["quantile_levels"]
     )
+    if cfg.chronos2_quantile_levels != (0.1, 0.5, 0.9):
+        raise ValueError("Bounded Chronos profiles must request q10/q50/q90")
     return {
         "enabled": cfg.enable_chronos2,
+        "profile": options.chronos2_profile,
+        "profile_schema_version": profile_payload.get("schema_version"),
+        "profile_path": str(profile_path),
         "model_id": cfg.chronos2_model_id,
+        "model_revision": cfg.chronos2_model_revision,
         "requested_device": cfg.chronos2_device,
         "resolved_device": resolve_chronos2_device(cfg.chronos2_device),
         "dtype": cfg.chronos2_dtype,
@@ -506,6 +523,7 @@ def _chronos2_checkpoint_signature(cfg: Config) -> dict:
     return {
         "schema_version": CHRONOS2_CHECKPOINT_SCHEMA_VERSION,
         "model_id": cfg.chronos2_model_id,
+        "model_revision": cfg.chronos2_model_revision,
         "requested_device": cfg.chronos2_device,
         "resolved_device": resolve_chronos2_device(cfg.chronos2_device),
         "dtype": cfg.chronos2_dtype,
@@ -612,7 +630,16 @@ def _load_fold_checkpoint(
     try:
         with open(path, "rb") as f:
             payload = pickle.load(f)
-    except Exception as exc:
+    except (
+        OSError,
+        EOFError,
+        pickle.UnpicklingError,
+        AttributeError,
+        ImportError,
+        IndexError,
+        TypeError,
+        ValueError,
+    ) as exc:
         print(f"    [checkpoint] ignoring unreadable {path}: {exc}")
         return None
     expected = _fold_checkpoint_signature(cfg, strategy, origin_type, origin)
@@ -677,10 +704,21 @@ FINAL_AUDIT_ORIGINS = pd.to_datetime([
     "2024-11-14",  # pre-Black-Friday stress week
 ])
 
+FINAL_AUDIT_MARKER = "outputs/final_audit_consumed.json"
+
 VALIDATION_STRATUM_WEIGHTS = {
     "winter_test_like": 0.60,
     "regular": 0.25,
     "holiday_event": 0.15,
+}
+
+WEIGHT_SENSITIVITY_SCHEMES = {
+    "frozen_test_aligned": VALIDATION_STRATUM_WEIGHTS,
+    "equal_strata": {
+        "winter_test_like": 1 / 3,
+        "regular": 1 / 3,
+        "holiday_event": 1 / 3,
+    },
 }
 
 
@@ -713,6 +751,68 @@ def recent_benchmark_origins(hist_df: pd.DataFrame, cfg: Config = CFG) -> pd.Dat
     of recent performance), not something to repeatedly re-tune against."""
     max_date = hist_df["DateKey"].max()
     return pd.DatetimeIndex([max_date - pd.Timedelta(days=(i + 1) * cfg.horizon) for i in range(cfg.n_cv_folds)])
+
+
+def evaluation_origin_registry(
+    recent_origins: pd.DatetimeIndex,
+    *,
+    include_final_audit: bool,
+    run_kind: str,
+) -> list[dict]:
+    """Describe selection eligibility and inspection state without overclaiming."""
+    registry = [
+        {
+            "key": "development",
+            "label": "Development",
+            "role": "model_selection",
+            "selection_eligible": True,
+            "inspection_state": "iterative",
+            "origins": [date.date().isoformat() for date in DEVELOPMENT_ORIGINS],
+        },
+        {
+            "key": "recent_diagnostic",
+            "artifact_key": "recent_benchmark",
+            "label": "Recent diagnostic",
+            "role": "non_selection_diagnostic",
+            "selection_eligible": False,
+            "inspection_state": "previously_inspected",
+            "origins": [date.date().isoformat() for date in recent_origins],
+        },
+    ]
+    registry.append({
+        "key": "final_audit",
+        "label": "Final audit",
+        "role": "non_selection_audit",
+        "selection_eligible": False,
+        "inspection_state": (
+            "consumed_by_publication"
+            if include_final_audit and run_kind == "publication"
+            else "reproduced"
+            if include_final_audit
+            else "reserved_not_run"
+        ),
+        "origins": (
+            [date.date().isoformat() for date in FINAL_AUDIT_ORIGINS]
+            if include_final_audit
+            else []
+        ),
+    })
+    return registry
+
+
+def validate_final_audit_policy(
+    options: RuntimeOptions,
+    marker_path: str = FINAL_AUDIT_MARKER,
+) -> None:
+    if not options.include_final_audit:
+        return
+    if options.run_kind not in {"publication", "reproduction"}:
+        raise RuntimeError("Final-audit origins require publication or reproduction")
+    if options.run_kind == "publication" and os.path.exists(marker_path):
+        raise RuntimeError(
+            f"Final-audit origins were already consumed according to {marker_path}; "
+            "use --run-kind reproduction for a labelled rerun"
+        )
 
 
 def _reindex_predictions(panel: pd.DataFrame, preds: np.ndarray, date_col: str,
@@ -1173,6 +1273,53 @@ def compute_test_aligned_scores(
     return pd.DataFrame(rows)
 
 
+def summarize_weight_sensitivity(
+    stratum_summary: pd.DataFrame,
+    development_summary: pd.DataFrame,
+    metric: str = "WAPE",
+) -> pd.DataFrame:
+    """Report predeclared weighting views without changing winner selection."""
+    frames: list[pd.DataFrame] = []
+    for scheme, weights in WEIGHT_SENSITIVITY_SCHEMES.items():
+        scores = compute_test_aligned_scores(
+            stratum_summary,
+            metric=metric,
+            weights=weights,
+            origin_type="development",
+        )
+        if scores.empty:
+            continue
+        scores.insert(0, "scheme", scheme)
+        scores["selection_eligible"] = scheme == "frozen_test_aligned"
+        frames.append(scores)
+
+    global_rows = development_summary[
+        development_summary["evaluation_regime"].eq("conditional")
+        & development_summary["comparison_population"].eq("common")
+        & development_summary["aggregation"].eq("global")
+        & development_summary["model"].isin(CHALLENGE_MODELS)
+    ][["strategy", "model", metric]].copy()
+    if not global_rows.empty:
+        global_rows.insert(0, "scheme", "global_pooled")
+        global_rows["metric"] = metric
+        global_rows["test_aligned_score"] = global_rows.pop(metric)
+        global_rows["weight_sum"] = np.nan
+        global_rows["strata_present"] = "pooled_rows"
+        global_rows["selection_eligible"] = False
+        frames.append(global_rows)
+
+    result = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if result.empty:
+        return result
+    winners = (
+        result.sort_values("test_aligned_score")
+        .groupby("scheme", as_index=False)
+        .first()[["scheme", "model"]]
+        .rename(columns={"model": "winner"})
+    )
+    return result.merge(winners, on="scheme", how="left", validate="many_to_one")
+
+
 def summarize_channel_share_oof(oof: pd.DataFrame) -> pd.DataFrame:
     """C4 app-share diagnostics by split and strategy.
 
@@ -1602,6 +1749,13 @@ def export_results_json(
     per_product_summary: pd.DataFrame | None = None,
     top_decile_summary: pd.DataFrame | None = None,
     top_error_rows: pd.DataFrame | None = None,
+    sanity_baseline: pd.DataFrame | None = None,
+    probabilistic_summary: pd.DataFrame | None = None,
+    weight_sensitivity: pd.DataFrame | None = None,
+    audit_summary: pd.DataFrame | None = None,
+    final_quantile_forecasts: dict | None = None,
+    origin_registry: list[dict] | None = None,
+    provenance: dict | None = None,
 ) -> dict:
     """Write the strict two-model dashboard contract.
 
@@ -1640,6 +1794,8 @@ def export_results_json(
     per_product_summary = challenge_only(per_product_summary)
     top_decile_summary = challenge_only(top_decile_summary)
     top_error_rows = challenge_only(top_error_rows)
+    probabilistic_summary = challenge_only(probabilistic_summary)
+    audit_summary = challenge_only(audit_summary)
 
     if benchmark_summary is not None and not benchmark_summary.empty:
         summary = select_primary_summary(benchmark_summary).copy()
@@ -1753,11 +1909,21 @@ def export_results_json(
 
     development_result = split_result(dev_summary)
     benchmark_result = split_result(benchmark_summary)
+    audit_result = split_result(audit_summary)
     challenge_complete = set(CHALLENGE_MODELS).issubset(available)
+    probabilistic_evaluated = (
+        probabilistic_summary is not None
+        and not probabilistic_summary.empty
+        and bool(final_quantile_forecasts)
+    )
 
     payload = {
-        "schema_version": "vonavy-chronos-v1",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": "vonavy-chronos-v2",
+        "generated_at": (
+            provenance.get("generated_at")
+            if provenance
+            else datetime.now(timezone.utc).isoformat()
+        ),
         "project": {
             "name": "vonavy_chronos",
             "title": "Best NN vs Chronos-2",
@@ -1770,6 +1936,7 @@ def export_results_json(
             "selection_source": "development OOF only",
             "development": development_result,
             "recent_benchmark": benchmark_result,
+            "final_audit": audit_result,
             "benchmark_confirms_development": (
                 development_result["winner"] == benchmark_result["winner"]
                 if challenge_complete
@@ -1832,6 +1999,10 @@ def export_results_json(
             "channel_aux_weight": cfg.channel_aux_weight,
             "enable_chronos2": cfg.enable_chronos2,
             "chronos2_model_id": cfg.chronos2_model_id,
+            "chronos2_model_revision": cfg.chronos2_model_revision,
+            "chronos2_profile": (
+                runtime_options.chronos2_profile if runtime_options else "published"
+            ),
             "chronos2_device": cfg.chronos2_device,
             "chronos2_dtype": cfg.chronos2_dtype,
             "chronos2_batch_size": cfg.chronos2_batch_size,
@@ -1871,6 +2042,27 @@ def export_results_json(
         "per_product_summary": records(per_product_summary),
         "top_decile_summary": records(top_decile_summary),
         "top_error_rows": records(top_error_rows),
+        "sanity_baseline": (
+            sanity_baseline.round(6).to_dict(orient="records")
+            if sanity_baseline is not None and not sanity_baseline.empty
+            else []
+        ),
+        "weight_sensitivity": records(weight_sensitivity),
+        "probabilistic_evaluation": {
+            "status": "evaluated" if probabilistic_evaluated else "not_evaluated",
+            "reason": (
+                None
+                if probabilistic_evaluated
+                else "Complete q10/q50/q90 OOF metrics and final forecasts are required."
+            ),
+            "metrics": records(probabilistic_summary),
+            "forecasts": final_quantile_forecasts or {},
+        },
+        "evaluation_origins": origin_registry or [],
+        "provenance": provenance or {
+            "status": "unknown",
+            "reason": "This artifact predates immutable run provenance.",
+        },
         "selection": {
             "canonical_model": canonical_model,
             "canonical_strategy": "direct",
@@ -1884,6 +2076,7 @@ def export_results_json(
                 and benchmark_result["winner"] is not None
                 else None
             ),
+            "final_audit_winner": audit_result["winner"],
         },
     }
 
@@ -1958,8 +2151,33 @@ def _forecast_dict_to_json(test_raw: pd.DataFrame, forecasts: dict) -> dict:
     return result
 
 
+def _chronos_quantiles_to_json(final_forecasts: pd.DataFrame) -> dict:
+    required = {
+        "ProductId", "DateKey", "model",
+        "prediction_q10", "prediction_q50", "prediction_q90",
+    }
+    if final_forecasts.empty or not required.issubset(final_forecasts.columns):
+        return {}
+    chronos = final_forecasts[final_forecasts["model"].eq("Chronos2")].copy()
+    if chronos.empty or chronos[
+        ["prediction_q10", "prediction_q50", "prediction_q90"]
+    ].isna().any().any():
+        return {}
+    per_product = {}
+    for product_id, product in chronos.groupby("ProductId", sort=True):
+        product = product.sort_values("DateKey")
+        per_product[str(int(product_id))] = {
+            "dates": pd.to_datetime(product["DateKey"]).dt.strftime("%Y-%m-%d").tolist(),
+            "q10": product["prediction_q10"].astype(float).tolist(),
+            "q50": product["prediction_q50"].astype(float).tolist(),
+            "q90": product["prediction_q90"].astype(float).tolist(),
+        }
+    return {"Chronos2": per_product}
+
+
 def main(argv=None) -> None:
     options = parse_args(argv)
+    validate_final_audit_policy(options)
     if options.forecast_strategy is not ForecastStrategy.DIRECT:
         raise RuntimeError("vonavy_chronos is a direct-vs-direct challenge")
     cfg = CFG
@@ -1991,7 +2209,9 @@ def main(argv=None) -> None:
     print(
         "Chronos-2: "
         f"enabled={chronos2_runtime['enabled']}, "
-        f"model={chronos2_runtime['model_id']}, "
+        f"model={chronos2_runtime['model_id']}@"
+        f"{chronos2_runtime['model_revision'][:12]}, "
+        f"profile={chronos2_runtime['profile']}, "
         f"device={chronos2_runtime['resolved_device']}, "
         f"covariates={chronos2_runtime['covariates']}, "
         f"cross_learning={chronos2_runtime['cross_learning']}"
@@ -2022,6 +2242,36 @@ def main(argv=None) -> None:
     train_raw, test_raw = load_raw(cfg)
     cfg.num_products = int(max(train_raw["ProductId"].max(), test_raw["ProductId"].max()))
     benchmark_origins = recent_benchmark_origins(train_raw, cfg)
+    origin_registry = evaluation_origin_registry(
+        benchmark_origins,
+        include_final_audit=options.include_final_audit,
+        run_kind=options.run_kind,
+    )
+    option_config = {
+        key: (value.value if isinstance(value, Enum) else value)
+        for key, value in asdict(options).items()
+    }
+    repository_root = Path(__file__).resolve().parents[1]
+    provenance = build_run_provenance(
+        repository_root=repository_root,
+        command=["python", "ml/pipeline.py", *(sys.argv[1:] if argv is None else argv)],
+        run_kind=options.run_kind,
+        config={
+            "config": asdict(cfg),
+            "runtime_options": option_config,
+            "evaluation_origins": origin_registry,
+        },
+        input_paths=[cfg.train_path, cfg.test_path],
+        lock_path="requirements-chronos.txt",
+        model_id=cfg.chronos2_model_id,
+        model_revision=cfg.chronos2_model_revision,
+        resolved_device=chronos2_runtime["resolved_device"],
+    )
+    provenance["run_manifest"] = f"outputs/runs/{provenance['run_id']}.json"
+    provenance["output_hashes"] = {
+        "status": "recorded_in_run_manifest",
+        "manifest": provenance["run_manifest"],
+    }
 
     print("\n=== Development head-to-head CV ===")
     dev_oof = run_walk_forward_cv_direct(
@@ -2033,7 +2283,7 @@ def main(argv=None) -> None:
         checkpoint_dir=options.checkpoint_dir,
         resume=options.resume,
     )
-    print("\n=== Recent-benchmark head-to-head CV ===")
+    print("\n=== Previously inspected recent diagnostic ===")
     benchmark_oof = run_walk_forward_cv_direct(
         train_raw,
         benchmark_origins,
@@ -2044,9 +2294,26 @@ def main(argv=None) -> None:
         resume=options.resume,
     )
 
-    oof = pd.concat([dev_oof, benchmark_oof], ignore_index=True)
+    audit_oof = pd.DataFrame()
+    if options.include_final_audit:
+        print("\n=== Final audit (non-selection evidence) ===")
+        audit_oof = run_walk_forward_cv_direct(
+            train_raw,
+            FINAL_AUDIT_ORIGINS,
+            "final_audit",
+            cfg,
+            timings=timings["cv_folds"],
+            checkpoint_dir=options.checkpoint_dir,
+            resume=options.resume,
+        )
+
+    oof_frames = [dev_oof, benchmark_oof]
+    if not audit_oof.empty:
+        oof_frames.append(audit_oof)
+    oof = pd.concat(oof_frames, ignore_index=True)
     dev_summary = summarize_oof_by_strategy(dev_oof, OOF_MODEL_COLUMNS)
     benchmark_summary = summarize_oof_by_strategy(benchmark_oof, OOF_MODEL_COLUMNS)
+    audit_summary = summarize_oof_by_strategy(audit_oof, OOF_MODEL_COLUMNS)
     validation_strata_summary = summarize_validation_strata(oof, OOF_MODEL_COLUMNS)
     test_aligned_scores = compute_test_aligned_scores(
         validation_strata_summary, metric=options.selection_metric
@@ -2059,6 +2326,13 @@ def main(argv=None) -> None:
     per_product_summary = summarize_per_product_oof(oof, OOF_MODEL_COLUMNS)
     top_decile_summary, top_error_rows = summarize_top_deciles(
         oof, OOF_MODEL_COLUMNS
+    )
+    sanity_baseline = summarize_sanity_baseline(oof, OOF_MODEL_COLUMNS)
+    probabilistic_summary = summarize_probabilistic_oof(oof)
+    weight_sensitivity = summarize_weight_sensitivity(
+        validation_strata_summary,
+        dev_summary,
+        metric=options.selection_metric,
     )
 
     canonical_model, canonical_strategy = _choose_canonical_model_strategy(
@@ -2189,6 +2463,18 @@ def main(argv=None) -> None:
     top_error_rows.to_csv(
         os.path.join(cfg.output_dir, "top_error_rows.csv"), index=False
     )
+    sanity_baseline.to_csv(
+        os.path.join(cfg.output_dir, "sanity_baseline.csv"), index=False
+    )
+    probabilistic_summary.to_csv(
+        os.path.join(cfg.output_dir, "probabilistic_summary.csv"), index=False
+    )
+    weight_sensitivity.to_csv(
+        os.path.join(cfg.output_dir, "weight_sensitivity.csv"), index=False
+    )
+    audit_summary.to_csv(
+        os.path.join(cfg.output_dir, "final_audit_summary.csv"), index=False
+    )
 
     by_horizon_frames: list[pd.DataFrame] = []
     for (origin_type, strategy), group in oof.groupby(
@@ -2221,7 +2507,10 @@ def main(argv=None) -> None:
     for split_name, summary in (
         ("development", dev_summary),
         ("recent_benchmark", benchmark_summary),
+        ("final_audit", audit_summary),
     ):
+        if summary.empty:
+            continue
         primary = summary[
             summary["evaluation_regime"].eq("conditional")
             & summary["comparison_population"].eq("common")
@@ -2238,6 +2527,7 @@ def main(argv=None) -> None:
     forecasts_by_strategy = {
         "direct": _forecast_dict_to_json(test_raw, forecasts)
     }
+    final_quantile_forecasts = _chronos_quantiles_to_json(final_forecast_df)
     payload = export_results_json(
         train_raw,
         test_raw,
@@ -2261,16 +2551,21 @@ def main(argv=None) -> None:
         per_product_summary=per_product_summary,
         top_decile_summary=top_decile_summary,
         top_error_rows=top_error_rows,
+        sanity_baseline=sanity_baseline,
+        probabilistic_summary=probabilistic_summary,
+        weight_sensitivity=weight_sensitivity,
+        audit_summary=audit_summary,
+        final_quantile_forecasts=final_quantile_forecasts,
+        origin_registry=origin_registry,
+        provenance=provenance,
     )
     publish_static_dashboard(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         os.path.join(cfg.output_dir, "results.json"),
     )
 
-    try:
+    if options.plot:
         plot_forecast(train_raw, submission, cfg=cfg)
-    except Exception as exc:
-        print(f"Plot skipped ({exc})")
 
     timings["total_seconds"] = round(time.perf_counter() - run_start, 2)
     timings["winner"] = canonical_model
@@ -2281,8 +2576,44 @@ def main(argv=None) -> None:
         ),
         "selected_submission": "submission.csv",
     }
-    with open(os.path.join(cfg.output_dir, "timings.json"), "w") as handle:
-        json.dump(timings, handle, indent=2)
+    write_json_atomic(os.path.join(cfg.output_dir, "timings.json"), _json_safe(timings))
+
+    output_paths = [
+        path
+        for base in (
+            repository_root / "outputs",
+            repository_root / "webapp" / "static",
+            repository_root / "docs",
+        )
+        for path in base.rglob("*")
+        if path.is_file()
+        and "checkpoints" not in path.parts
+        and "runs" not in path.parts
+        and path.name != "SHA256SUMS"
+    ]
+    hashes = output_hashes(repository_root, output_paths)
+    run_record = {**provenance, "output_sha256": hashes}
+    run_record_path = repository_root / provenance["run_manifest"]
+    write_json_atomic(run_record_path, _json_safe(run_record))
+    checksums = "\n".join(
+        f"{digest}  {path}" for path, digest in hashes.items()
+    ) + "\n"
+    (repository_root / "outputs" / "SHA256SUMS").write_text(
+        checksums, encoding="utf-8"
+    )
+    if options.run_kind == "publication" and options.include_final_audit:
+        write_json_atomic(
+            repository_root / FINAL_AUDIT_MARKER,
+            {
+                "schema_version": "final-audit-consumption-v1",
+                "run_id": provenance["run_id"],
+                "source_revision": provenance["source"]["revision"],
+                "consumed_at": provenance["generated_at"],
+                "origins": [
+                    date.date().isoformat() for date in FINAL_AUDIT_ORIGINS
+                ],
+            },
+        )
 
     print(f"\nSaved challenge winner submission: {canonical_model} / direct")
     print("Saved incumbent forecast: outputs/submission_best_nn.csv")

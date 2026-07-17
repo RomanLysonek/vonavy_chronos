@@ -1,213 +1,125 @@
-# vonavy_chronos
+# NOTINO / Interview Assignment — Chronos-2 challenge
 
-A deliberately narrow forecasting challenge:
+This repository asks one deliberately narrow question:
 
-> **Can Amazon Chronos-2 beat the strongest model developed in the original Notino project?**
+> Can zero-shot Amazon Chronos-2 beat the frozen custom neural network developed for the original retail forecasting assignment?
 
-This repository is not another broad model leaderboard. Its executable and presentation contract contains exactly two contenders:
+The published answer is **no**. Chronos-2 is technically suitable as a same-split foundation-model benchmark, but the custom network wins materially. The project does not fine-tune Chronos, blend the contenders, or manufacture a larger leaderboard.
 
-| Role | Dashboard label | Internal key | Forecast contract |
+| Role | Published label | Internal key | Contract |
 |---|---|---|---|
-| Frozen incumbent | **Best NN** | `NeuralNet` | Direct 7-day multi-horizon forecast |
-| Foundation-model challenger | **Chronos-2** | `Chronos2` | Direct 7-day zero-shot quantile forecast |
+| Frozen incumbent | **Best NN** | `NeuralNet` | Direct seven-day multi-horizon forecast |
+| Zero-shot challenger | **Chronos-2** | `Chronos2` | Direct q10/q50/q90 forecast; q50 is the point estimate |
 
-The checked-in dashboard preserves the last stable incumbent results and marks Chronos-2 as **pending**. Running the pipeline downloads the Chronos weights, evaluates both models on identical walk-forward rows, writes both forecast files, and selects the final `submission.csv` using development out-of-fold performance only.
+## Portfolio suite
 
-## Why only these two models
+- [Forecasting](https://romanlysonek.github.io/vonava_predikce/)
+- [Anomaly detection](https://romanlysonek.github.io/vonave_anomalie/)
+- [Chronos-2 challenge](https://romanlysonek.github.io/vonavy_chronos/)
 
-The original project used tree models, naïve baselines, recursive variants and an ensemble to explore the solution space. That work has already served its purpose: it led to the frozen incumbent. Repeating those models in this repository would dilute the only question that matters now.
+All three applications are static GitHub Pages sites. In this repository, `webapp/static/` is authored source and `docs/` is generated-only.
 
-The active benchmark therefore:
+## Honest evaluation contract
 
-- trains only the frozen neural incumbent;
-- runs only Chronos-2 as the challenger;
-- uses one direct seven-day forecasting contract;
-- excludes ensembles and post-hoc blending;
-- exports only the two contenders to JSON and the dashboard;
-- retains a short lineage explaining how **Best NN** was reached, without displaying obsolete leaderboard scores.
+- Development walk-forward origins are the only selection evidence.
+- The recent diagnostic has already been inspected. It is reported as non-selection evidence, not described as untouched or independent.
+- `FINAL_AUDIT_ORIGINS` are executed once by a publication run. A consumption marker prevents a second run from being labelled fresh; explicit reruns are labelled reproductions.
+- Both contenders use the same forecast origins, target keys, information cut-offs, availability-aware scoring population, and primary global WAPE.
+- The same-row seasonal weekday naive appears only in a compact sanity table. It is not a third contender.
+- The frozen 60/25/15 winter/regular/event weighting remains the selection rule. Equal-strata and global views report sensitivity only and never retune those weights.
 
-## Frozen incumbent: “Best NN”
+## Probabilistic contract
 
-The incumbent is the strongest confirmed direct NeuralNet specification from the original repository. Its essential design is frozen before Chronos is scored:
+Chronos requests q10/q50/q90 and uses q50 as its point forecast. Quantiles are published as evaluated only when real OOF artifacts support:
 
-1. **Leakage-safe daily panel** — missing calendar rows, stockouts and valid zero demand remain distinct states.
-2. **Direct multi-horizon formulation** — one stacked `(ForecastOrigin, Horizon, ProductId)` panel predicts all seven target days without recursive feedback.
-3. **Availability-aware history** — unavailable quantities are censored from lag and rolling-demand features rather than treated as real zero demand.
-4. **Residual target** — the network predicts a log-demand residual around a robust seasonal/rolling baseline.
-5. **Structured categorical handling** — product, web campaign and app campaign identifiers use embeddings.
-6. **Development-only selection** — all model decisions were made on walk-forward development origins; recent origins act only as confirmation.
+- pinball loss at q10, q50, and q90;
+- empirical quantile calibration;
+- 80% interval coverage;
+- mean and normalized interval width.
 
-Historical model implementations are excluded from the active repository. Their conclusions survive only as the compact incumbent lineage and the frozen configuration.
+The UI renders an interval band only in that evaluated state. Missing artifacts produce an explicit `not_evaluated` state; intervals are never inferred or fabricated.
 
-## Chronos-2 adapter
+## Reproducibility and provenance
 
-`ml/models/chronos2_model.py` translates the retail panel into the Chronos dataframe interface while preserving the original information boundary.
+The publication profile pins:
 
-### Target handling
+- `chronos-forecasting==2.3.1` through the generated transitive `requirements-chronos.txt`;
+- `amazon/chronos-2` revision `29ec3766d36d6f73f0696f85560a422f50e8498c`;
+- the bounded profile in `ml/chronos2_profiles.json`.
 
-- Target: total daily demand, `QuantityApp + QuantityWeb`.
-- Stockout rows are passed as missing historical targets, not zero demand.
-- Synthetic calendar-gap rows are also missing targets.
-- Products with no usable context receive the same availability-aware fallback used by the incumbent framework instead of aborting a fold.
+Every publication records the exact source revision/tree, dirty state, input/config/lock hashes, canonical command, package/model revisions, resolved device/runtime/hardware, UTC generation time, run ID, and output hashes. Unknown runtime fields are labelled rather than guessed.
 
-### Known-future covariates
+The core `uv.lock` intentionally excludes Chronos. Static Pages requires no inference environment, and FastAPI is an optional local preview.
 
-Only values genuinely known for the target dates are supplied as future covariates:
+## Install
 
-- calendar features;
-- campaign subtype identifiers;
-- discount values;
-- sale/promotion flags;
-- listed price, relative price and effective-price features.
-
-`ProductAvailable` is deliberately **not** supplied for future dates because test-time availability is not known. Historical observation and availability indicators remain past-only covariates.
-
-### Probabilistic output
-
-Chronos produces `q10`, `q50` and `q90` forecasts. The point forecast is the median (`q50`); quantiles are exported in `final_forecasts.parquet`. Fallback rows receive internally consistent collapsed intervals.
-
-## Fair comparison contract
-
-Both contenders are evaluated with:
-
-- the same development and recent-benchmark forecast origins;
-- the same pre-origin information cutoff;
-- the same `(ProductId, DateKey)` target keys;
-- the same conditional-demand and realized-sales diagnostics;
-- a common prediction population, so neither model improves its score by dropping hard rows;
-- WAPE as the primary metric;
-- development OOF only for winner selection;
-- the recent benchmark as a one-time confirmation, never a tuning set.
-
-The default winner protocol is `test-aligned`: development strata resembling the January test period receive the frozen weighting already defined by the original project. `--selection-protocol global` is available as a transparent alternative.
-
-## Installation
-
-Requires Python 3.14+ and `uv`.
-
-The stable project environment and the Chronos overlay are kept separate so the original pipeline remains reproducible.
+Core development and tests:
 
 ```bash
 uv sync --group dev
 ```
 
-Chronos-2 is loaded as an optional pinned overlay at execution time:
+Optional FastAPI preview:
 
 ```bash
-uv run --with "chronos-forecasting==2.3.1" python ml/pipeline.py --resume
+uv sync --group preview
+uv run --group preview python webapp/server.py
 ```
 
-The first run downloads `amazon/chronos-2` from Hugging Face. Later runs reuse the local model cache.
-
-## Recommended challenge run
+Optional Chronos publication overlay:
 
 ```bash
-caffeinate -i uv run \
-  --with "chronos-forecasting==2.3.1" \
+uv run --locked \
+  --with-requirements requirements-chronos.txt \
   python ml/pipeline.py \
-  --forecast-strategy direct \
-  --submission-model auto \
-  --selection-metric WAPE \
-  --selection-protocol test-aligned \
-  --chronos2 on \
+  --run-kind publication \
+  --include-final-audit \
+  --chronos2-profile published \
   --chronos2-device auto \
-  --chronos2-dtype float32 \
-  --chronos2-batch-size 100 \
-  --chronos2-cross-learning on \
-  --chronos2-covariates on \
-  --resume \
-  2>&1 | tee pipeline_chronos_challenge.log
+  --resume
 ```
 
-On Apple Silicon, `auto` resolves to MPS when supported. Use `--chronos2-device cpu` if the installed Chronos/Transformers combination exposes an unsupported MPS operation.
+No target-only, cross-learning, covariate, or context-length ablation is executed by that command. Those bounded profiles exist only to make future plumbing explicit and reproducible.
 
-### Useful ablations
+## Static and local use
 
-These are Chronos configuration checks, not extra competing models:
+The checked-in complete demo needs only a file server:
 
 ```bash
-# Full challenger
---chronos2-cross-learning on  --chronos2-covariates on
-
-# Test whether cross-product learning helps
---chronos2-cross-learning off --chronos2-covariates on
-
-# Pure target-only zero-shot Chronos
---chronos2-cross-learning off --chronos2-covariates off
+python -m http.server 8998 --directory docs
 ```
 
-Changing a Chronos-specific option invalidates only the Chronos augmentation in compatible direct-fold checkpoints. Existing incumbent fold predictions remain reusable.
+Open <http://127.0.0.1:8998/>.
+
+The optional FastAPI preview also uses <http://127.0.0.1:8998/> and reads `outputs/results.json` on each request.
+
+Regenerate or verify Pages:
+
+```bash
+uv run python ml/publish_static.py
+uv run python ml/publish_static.py --check
+```
+
+Rebuild presentation JSON from retained run artifacts without training:
+
+```bash
+uv run python ml/export_results.py
+uv run python ml/export_results.py --check
+```
 
 ## Outputs
 
-A complete run writes:
+The full pipeline writes submissions, aligned OOF/final parquet files, diagnostics, compact evidence CSVs, `results.json`, a run record, and SHA-256 checksums. Heavy reproducible artifacts remain gitignored; the complete cached dashboard, compact evidence, run manifest, and checksums are committed.
 
-```text
-outputs/
-├── submission_best_nn.csv          # frozen incumbent forecast
-├── submission_chronos2.csv          # Chronos point forecast
-├── submission.csv                   # development-selected winner
-├── challenge_comparison.csv         # two-model development + benchmark table
-├── oof_predictions.parquet          # aligned row-level OOF predictions
-├── final_forecasts.parquet          # point forecasts, fallbacks and quantiles
-├── prediction_diagnostics.csv       # coverage/fallback diagnostics
-├── prediction_diagnostics_by_origin.csv
-├── per_product_summary.csv
-├── top_decile_summary.csv
-├── strategy_by_horizon.csv
-└── results.json                     # strict two-model dashboard contract
-```
+The headline remains exactly two models. Supporting evidence is exported under dedicated `sanity_baseline`, `weight_sensitivity`, and `probabilistic_evaluation` keys.
 
-Every model-bearing array in `results.json` is filtered at the exporter boundary to `NeuralNet` and `Chronos2`. This is not merely a frontend filter.
-
-## Dashboard
-
-Run the local web application:
-
-```bash
-uv run python webapp/server.py
-```
-
-Open:
-
-```text
-http://127.0.0.1:8998
-```
-
-The dashboard contains:
-
-- the development-selected winner and recent-benchmark confirmation;
-- WAPE/MAE/bias head-to-head cards;
-- fold-by-fold and horizon-by-horizon deltas;
-- high-volume-day performance;
-- per-product win counts;
-- a two-forecast product explorer;
-- separate **Best NN** and **Chronos-2** method pages;
-- a compact incumbent-development lineage;
-- explicit pending state when Chronos has not yet been executed.
-
-`docs/` contains the equivalent static GitHub Pages site.
-
-## Repository map
-
-```text
-data/                         supplied train/test parquet files
-ml/framework.py               shared panel, feature and evaluation contracts
-ml/models/neural_net.py       frozen incumbent implementation
-ml/models/chronos2_model.py   Chronos dataframe adapter and fallback logic
-ml/pipeline.py                two-contender orchestration and artifact export
-ml/export_results.py          rebuild dashboard JSON from persisted artifacts
-webapp/                       local FastAPI server and two-model frontend
-docs/                         static dashboard for GitHub Pages
-tests/                        challenge, Chronos adapter and frontend contracts
-```
-
-## Acceptance checks
+## Validation
 
 ```bash
 python -m compileall -q ml webapp
-node tests/webapp_smoke_test.js
 uv run pytest -q
+node tests/webapp_smoke_test.js
+uv run python ml/publish_static.py --check
 ```
 
-The expensive model-weight inference is intentionally separate from unit tests. The local challenge run is the final runtime acceptance test for the installed hardware backend.
+Model-weight inference is intentionally separate from unit and Pages checks.

@@ -119,7 +119,7 @@ def test_export_boundary_removes_every_legacy_model(tmp_path):
         canonical_model="NeuralNet",
     )
 
-    assert payload["schema_version"] == "vonavy-chronos-v1"
+    assert payload["schema_version"] == "vonavy-chronos-v2"
     assert [model["key"] for model in payload["models"]] == list(CHALLENGE_MODELS)
     assert set(payload["forecasts"]) == set(CHALLENGE_MODELS)
     assert set(payload["forecasts_by_strategy"]["direct"]) == set(CHALLENGE_MODELS)
@@ -142,12 +142,16 @@ def test_checked_in_dashboard_snapshot_obeys_challenge_schema():
     root = Path(__file__).resolve().parents[1]
     data = json.loads((root / "outputs" / "results.json").read_text())
     assert data["project"]["name"] == "vonavy_chronos"
-    assert data["project"]["status"] == "awaiting_chronos"
+    assert data["schema_version"] == "vonavy-chronos-v2"
+    assert data["project"]["status"] == "complete"
     assert [model["key"] for model in data["models"]] == list(CHALLENGE_MODELS)
     assert data["models"][0]["label"] == "Best NN"
     assert data["models"][0]["available"] is True
-    assert data["models"][1]["available"] is False
-    assert set(data["forecasts"]) == {"NeuralNet"}
+    assert data["models"][1]["available"] is True
+    assert set(data["forecasts"]) == set(CHALLENGE_MODELS)
+    assert data["selection"]["canonical_model"] == "NeuralNet"
+    assert data["provenance"]["source"]["revision"]
+    assert data["probabilistic_evaluation"]["status"] == "evaluated"
 
 
 def test_branding_and_local_port_are_frozen():

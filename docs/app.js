@@ -70,9 +70,9 @@ function renderKpis(data, regime) {
       color: benchWinner ? modelColor(data, benchWinner.model) : null,
     },
     {
-      label: "Independent confirmation",
+      label: "Recent diagnostic agreement",
       value: confirms === null ? "Pending" : (confirms ? "Yes" : "No"),
-      sub: "Did the recent benchmark agree with development?",
+      sub: "Previously inspected and never used for selection",
     },
   ];
 
@@ -159,9 +159,9 @@ function renderFairness(data, regime) {
   const n = summaryRows(data, { source: "benchmark", regime })[0]?.n_scored;
   const items = [
     ["Same forecast origins", `${data.config?.n_dev_origins || 12} development origins plus ${data.config?.n_cv_folds || 4} recent benchmark origins.`],
-    ["Same scoring rows", `${Number.isFinite(Number(n)) ? Number(n).toLocaleString() : "Common"} ${regime === "realized" ? "observed" : "available"} product-days; neither model gets a private population.`],
+    ["Same scoring rows", `${Number.isFinite(Number(n)) ? Number(n).toLocaleString(NUMBER_LOCALE) : "Common"} ${regime === "realized" ? "observed" : "available"} product-days; neither model gets a private population.`],
     ["Same primary metric", "Global WAPE: total absolute error divided by total actual demand."],
-    ["No benchmark tuning", "The winner is selected on development OOF. The recent benchmark only checks whether the result survives."],
+    ["No diagnostic tuning", "The winner is selected on development OOF. Recent and final-audit results are non-selection evidence."],
   ];
   document.getElementById("fairness-list").innerHTML = items.map(([title, body]) => `
     <div class="definition-item"><strong>${title}</strong><span>${body}</span></div>
@@ -325,6 +325,26 @@ function renderProductChart(data, productId) {
       borderWidth: 3,
       pointRadius: 3,
     });
+    const interval = data.probabilistic_evaluation?.status === "evaluated"
+      ? data.probabilistic_evaluation?.forecasts?.Chronos2?.[productId]
+      : null;
+    if (key === "Chronos2" && interval) {
+      datasets.push({
+        label: "Chronos q90",
+        data: interval.dates.map((date, index) => ({ x: date, y: interval.q90[index] })),
+        borderColor: "transparent",
+        backgroundColor: "rgba(255, 153, 0, 0.16)",
+        pointRadius: 0,
+      });
+      datasets.push({
+        label: "Chronos 80% interval",
+        data: interval.dates.map((date, index) => ({ x: date, y: interval.q10[index] })),
+        borderColor: "transparent",
+        backgroundColor: "rgba(255, 153, 0, 0.16)",
+        pointRadius: 0,
+        fill: "-1",
+      });
+    }
   });
   if (productChart) productChart.destroy();
   productChart = new Chart(document.getElementById("chart-product"), {
@@ -341,6 +361,44 @@ function renderProductChart(data, productId) {
       },
     },
   });
+}
+
+function renderEvidence(data) {
+  const baselineRows = (data.sanity_baseline || []).filter((row) => row.origin_type === "recent_benchmark");
+  const baselineBody = document.querySelector("#baseline-table tbody");
+  baselineBody.innerHTML = baselineRows.length
+    ? baselineRows.map((row) => `<tr><td>${row.estimator === "SeasonalWeekdayNaive" ? "Seasonal weekday naive" : modelLabel(data, row.estimator)}</td><td>${ratePct(row.WAPE)}</td><td>${fmt(row.MAE)}</td><td>${fmt(row.Bias)}</td><td>${row.n ?? "—"}</td></tr>`).join("")
+    : '<tr><td colspan="5">Baseline evidence is not available in this artifact.</td></tr>';
+
+  const probability = data.probabilistic_evaluation || { status: "not_evaluated" };
+  const metric = (probability.metrics || []).find((row) => row.origin_type === "recent_benchmark");
+  document.getElementById("probabilistic-evidence").innerHTML = probability.status === "evaluated" && metric
+    ? [
+      ["Status", "Evaluated on real out-of-fold q10/q50/q90 forecasts."],
+      ["80% interval coverage", ratePct(metric.interval_coverage)],
+      ["Mean interval width", fmt(metric.interval_mean_width)],
+      ["Pinball q10 / q50 / q90", `${fmt(metric.pinball_q10, 2)} / ${fmt(metric.pinball_q50, 2)} / ${fmt(metric.pinball_q90, 2)}`],
+    ].map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("")
+    : `<div class="definition-item"><strong>Not yet evaluated</strong><span>${probability.reason || "A reproducible quantile rerun is required."}</span></div>`;
+
+  const sensitivity = data.weight_sensitivity || [];
+  const schemes = [...new Set(sensitivity.map((row) => row.scheme))];
+  document.querySelector("#weight-table tbody").innerHTML = schemes.map((scheme) => {
+    const rows = sensitivity.filter((row) => row.scheme === scheme);
+    const scores = Object.fromEntries(rows.map((row) => [row.model, row.test_aligned_score]));
+    return `<tr><td>${scheme.replaceAll("_", " ")}</td><td>${ratePct(scores.NeuralNet)}</td><td>${ratePct(scores.Chronos2)}</td><td>${rows[0]?.winner ? modelLabel(data, rows[0].winner) : "—"}</td></tr>`;
+  }).join("") || '<tr><td colspan="4">Sensitivity evidence is not available.</td></tr>';
+
+  const provenance = data.provenance || {};
+  const source = provenance.source || {};
+  const runtime = provenance.runtime || {};
+  document.getElementById("provenance-list").innerHTML = [
+    ["Run ID", provenance.run_id || "Unknown"],
+    ["Source revision", source.revision || "Unknown"],
+    ["Chronos revision", provenance.chronos?.model_revision || data.config?.chronos2_model_revision || "Unknown"],
+    ["Runtime", `${runtime.os || "Unknown"} / ${runtime.machine || "Unknown"} / ${runtime.torch?.device || "Unknown"}`],
+    ["Generated", provenance.generated_at || data.generated_at || "Unknown"],
+  ].map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span class="provenance-value">${body}</span></div>`).join("");
 }
 
 function renderForecastGrid(data, modelKey) {
@@ -391,6 +449,7 @@ async function main() {
       renderHorizonChart(data, regime, horizonMetricSelect.value);
       renderTopDemand(data);
       renderProductVerdict(data);
+      renderEvidence(data);
       refreshProduct();
       renderForecastGrid(data, gridModelSelect.value);
     };

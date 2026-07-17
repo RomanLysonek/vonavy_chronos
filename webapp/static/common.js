@@ -1,4 +1,10 @@
 const CHALLENGE_MODELS = ["NeuralNet", "Chronos2"];
+const NUMBER_LOCALE = "en-GB";
+const SUITE_APPS = [
+  { label: "Forecasting", href: "https://romanlysonek.github.io/vonava_predikce/" },
+  { label: "Anomaly detection", href: "https://romanlysonek.github.io/vonave_anomalie/" },
+  { label: "Chronos-2 challenge", href: "https://romanlysonek.github.io/vonavy_chronos/" },
+];
 
 async function loadResults() {
   const candidates = window.STATIC_DASHBOARD
@@ -49,9 +55,25 @@ function wireSharedLinks() {
   });
 }
 
+function renderSuiteSwitcher() {
+  if (typeof document === "undefined") return;
+  const heroTop = document.querySelector(".hero-top");
+  if (!heroTop || heroTop.querySelector(".suite-switcher")) return;
+  const currentPath = window.location.pathname;
+  const switcher = document.createElement("nav");
+  switcher.className = "suite-switcher";
+  switcher.setAttribute("aria-label", "Interview assignment suite");
+  switcher.innerHTML = SUITE_APPS.map((app) => {
+    const current = currentPath.includes("/vonavy_chronos/");
+    const isChronos = app.href.includes("/vonavy_chronos/");
+    return `<a href="${app.href}"${current && isChronos ? ' aria-current="page"' : ""}>${app.label}</a>`;
+  }).join("");
+  heroTop.appendChild(switcher);
+}
+
 function fmt(value, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-  return Number(value).toLocaleString(undefined, {
+  return Number(value).toLocaleString(NUMBER_LOCALE, {
     maximumFractionDigits: digits,
     minimumFractionDigits: digits,
   });
@@ -145,7 +167,8 @@ function updateSharedCopy(data) {
   const winner = canonicalModel(data);
   const footer = document.getElementById("footer-method-text");
   if (footer) {
-    footer.textContent = `Winner selection uses development OOF only. Current selected forecast: ${modelLabel(data, winner)}.`;
+    const runId = data.provenance?.run_id ? ` Published run ${data.provenance.run_id}.` : "";
+    footer.textContent = `Winner selection uses development OOF only. Current selected forecast: ${modelLabel(data, winner)}.${runId}`;
   }
 }
 
@@ -178,3 +201,4 @@ if (window.Chart) {
 }
 
 wireSharedLinks();
+renderSuiteSwitcher();
