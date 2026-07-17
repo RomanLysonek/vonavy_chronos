@@ -22,11 +22,17 @@ from pipeline import (
     build_actual_execution,
     build_checkpoint_run_identity,
     load_authenticated_checkpoint_index,
+    model_output_artifact_paths,
     reserve_final_audit,
     validate_final_audit_policy,
 )
 from framework import Config
-from provenance import build_run_provenance, sha256_file, sha256_json
+from provenance import (
+    build_run_provenance,
+    output_hashes,
+    sha256_file,
+    sha256_json,
+)
 from static_site import check_static_dashboard, publish_static_dashboard
 
 
@@ -349,6 +355,38 @@ def test_dirty_reproduction_cannot_build_canonical_provenance(tmp_path):
 def test_noncanonical_experiment_outputs_are_gitignored():
     root = Path(__file__).resolve().parents[1]
     assert "outputs/experiments/" in (root / ".gitignore").read_text()
+
+
+def test_experiment_tree_cannot_change_canonical_artifact_bytes(tmp_path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "results.json").write_text('{"canonical": true}\n')
+    (outputs / "dev_summary.csv").write_text("model,WAPE\nNeuralNet,0.1\n")
+
+    def snapshot():
+        payload = (outputs / "results.json").read_bytes()
+        hashes = output_hashes(
+            tmp_path,
+            model_output_artifact_paths(tmp_path, "outputs"),
+        )
+        manifest = json.dumps(
+            {"output_sha256": hashes}, sort_keys=True, separators=(",", ":")
+        ).encode()
+        checksums = "".join(
+            f"{digest}  {path}\n" for path, digest in sorted(hashes.items())
+        ).encode()
+        return payload, manifest, checksums, hashes
+
+    before = snapshot()
+    experiment = outputs / "experiments" / "dirty-run"
+    experiment.mkdir(parents=True)
+    (experiment / "results.json").write_text('{"tampered": true}\n')
+    (experiment / "SHA256SUMS").write_text("untrusted\n")
+    after = snapshot()
+
+    assert before[:3] == after[:3]
+    assert before[3] == after[3]
+    assert all("outputs/experiments/" not in path for path in after[3])
 
 
 def test_publication_finalizer_preserves_authenticated_checkpoint_metadata(tmp_path):

@@ -1,14 +1,14 @@
 {
   "schema_version": "chronos-publication-v1",
   "status": "authenticated",
-  "publication_id": "8433c85d5befea71",
-  "generated_at": "2026-07-17T17:02:46.176146+00:00",
+  "publication_id": "dee600fdd4b20e7a",
+  "generated_at": "2026-07-17T17:14:37.182214+00:00",
   "model_run_id": "941bbd3a1dd0cf23",
-  "manifest": "outputs/publications/8433c85d5befea71.json",
+  "manifest": "outputs/publications/dee600fdd4b20e7a.json",
   "source": {
     "status": "content_addressed_worktree",
-    "base_revision": "ca8acab7b951c6ad4ce15835c929b2dd84b223db",
-    "content_sha256": "574ff8c444e5a147cc9013a3154a29613f755be1003a9f98afaaa6232e595e1e",
+    "base_revision": "150f84c3b0c8943f7512ddfa001252fa4f454ecb",
+    "content_sha256": "3ecab58f3760c738c18b9d83852fe823d55f5659c2964012758334c4a7838fb3",
     "reason": "Publication-only hardening occurred after model inference. These file hashes bind the exact publication source without claiming that the later source produced the model forecasts."
   },
   "source_files_sha256": {
@@ -23,7 +23,7 @@
     "ml/models/__init__.py": "fa82f95631977fd88275aef5494259c09a2f7e983544e5b0be0da66735493eca",
     "ml/models/chronos2_model.py": "cbca1b3ce5b8b50db7ad4b873ce9c4791934502578d327c220dfdcf4a8a04d56",
     "ml/models/neural_net.py": "070ac9858fa29d5e9710b1a570a06b5838003af12eab7d15232385a9e3587dd7",
-    "ml/pipeline.py": "ec948fcbd777a5f3c66750d1f65ef9c4fb986097c62cd9f7c3864c8c4fc1968d",
+    "ml/pipeline.py": "38fcd3e0f2ebf48fb3022ad2498cadba8a3fa9da69b9086bddd979aa7c13f63b",
     "ml/provenance.py": "6eaa54d3ff8872df11b7d5997bb3d4414a6c19fb6d91473a4f2da9d3e978f892",
     "ml/publish_static.py": "05c41361c45bf86e02526fb762771601be46f7c6cd1d8312d0d49897e53d3bfe",
     "ml/static_site.py": "977dc419c67ad6168f1e51beafba78eb0b343576427bb1512699b613b2509d88",
@@ -32,7 +32,7 @@
     "requirements-chronos.txt": "fa2ba3e3fc086ebf27bc955f4aa56e7629b43138c565427e6827ced936abd95c",
     "tests/test_challenge_contract.py": "8947b9318f3d237548843162553f1c922b5b46ffca409a1f8930ef9e4f3b6671",
     "tests/test_chronos2.py": "a21867a9afcbcd933eb5276ea1e7a7360dba3e1827dc2bf603e447f7c09ef5c1",
-    "tests/test_hardening_contracts.py": "0b227881cf9bec9ecebdc51e47ba02bd1877be60e9171beec2d018abb86cc73f",
+    "tests/test_hardening_contracts.py": "d18e7409234cbb42a7070c472e7c5a14f37497f7dd226e1b61f5a58853641382",
     "tests/webapp_smoke_test.js": "4e7af2894cad86a23dd152d21898717733440c6836f30aaa4927752a26082387",
     "uv.lock": "9a54c6aee87164af711cd7ede2f467ea28857c29d0d4cbe825efccaaf8b2c127",
     "webapp/server.py": "f8178eb5d6453d816d337b4fa103859640cd4d0f504fc608a2ac4f9bbe3fe2b2",
@@ -61,14 +61,14 @@
     "docs/index.html": "6ddf2f52d2359ccdbc4041f34fb5d7e562d5518a56494bb7bf7f7217df684fb3",
     "docs/model.html": "4a82a9f1a2b7f03c8d4c82d1febc321ee3fc43afb2092e6c8458d7d4d2acd977",
     "docs/model.js": "726dd8511fb0c8f30f483c0fad5ef144542ec04056ed26b229e8df53683de91e",
-    "docs/results.json": "2ccd641133af7150866d744ca527c4804c4ab4c535b051a86b95d39b4415e3b4",
+    "docs/results.json": "3f91f39cc91f755b19f308e51f9f53e93e25ef3a75b0fcf9fd4de92dc3111329",
     "docs/styles.css": "8cf628659181a49ed421666fc0bba2e428c02de7a313c178cd8bfdeff24d7f8d",
     "outputs/README.md": "b93533e08b5c3a07f2707913fb654b2aea8bb8379cbac987c007da4927b3b138",
     "outputs/challenge_comparison.csv": "5fc2847ab0955275f2f0fb88f3f3ee3be4f894c3cb4b401dc03df3f40efa61ed",
     "outputs/final_audit_consumed.json": "1bd0173ec100b3cc8e2ed35778e67e62d725a644409f792db653b6f5ae846893",
     "outputs/final_audit_summary.csv": "fbeb9f45bdf0179cd57ed239f144011b6ab63a6a478fa0ef0cae4fde4dfa4b6b",
     "outputs/probabilistic_summary.csv": "c2daa7ebca53e0342ac7e83a3f0b5321efc1a5afe766572e9b5e1676d1b43b10",
-    "outputs/results.json": "2ccd641133af7150866d744ca527c4804c4ab4c535b051a86b95d39b4415e3b4",
+    "outputs/results.json": "3f91f39cc91f755b19f308e51f9f53e93e25ef3a75b0fcf9fd4de92dc3111329",
     "outputs/runs/941bbd3a1dd0cf23.json": "9ee9fcf0461fe438164c36f482521c964827bc6356582197924ac9279ce64a08",
     "outputs/sanity_baseline.csv": "f40ccb4c9fd49789f1de7c772ed07fa23963a116f48db73a2cd535b6debbb92d",
     "outputs/weight_sensitivity.csv": "05476a04d2c092e33297b1e3b940193ddb7712c7b60e4ae0837a6b3bc5f93fad",
@@ -82,7 +82,7 @@
     "webapp/static/index.html": "906861199de1df5a99900deba8735cfb5f87bbd58784baab2ee514e8f074ad2d",
     "webapp/static/model.html": "251db05d45016ce248eb241194e88ed2397c977365e095f0890baf1db6aa2cd2",
     "webapp/static/model.js": "726dd8511fb0c8f30f483c0fad5ef144542ec04056ed26b229e8df53683de91e",
-    "webapp/static/results.json": "2ccd641133af7150866d744ca527c4804c4ab4c535b051a86b95d39b4415e3b4",
+    "webapp/static/results.json": "3f91f39cc91f755b19f308e51f9f53e93e25ef3a75b0fcf9fd4de92dc3111329",
     "webapp/static/styles.css": "8cf628659181a49ed421666fc0bba2e428c02de7a313c178cd8bfdeff24d7f8d"
   }
 }

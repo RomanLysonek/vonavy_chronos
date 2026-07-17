@@ -534,6 +534,57 @@ def configure_nn_runtime(cfg: Config, options: RuntimeOptions) -> dict:
 
 CHECKPOINT_SCHEMA_VERSION = "publication-identity-v2"
 CHRONOS2_CHECKPOINT_SCHEMA_VERSION = "chronos2-publication-identity-v2"
+MODEL_OUTPUT_FILENAMES = (
+    "submission.csv",
+    "submission.parquet",
+    "submission_best_nn.csv",
+    "submission_best_nn.parquet",
+    "submission_chronos2.csv",
+    "submission_chronos2.parquet",
+    "challenge_comparison.csv",
+    "oof_predictions.parquet",
+    "final_forecasts.parquet",
+    "dev_summary.csv",
+    "benchmark_summary.csv",
+    "validation_strata_summary.csv",
+    "test_aligned_scores.csv",
+    "prediction_diagnostics.csv",
+    "prediction_diagnostics_by_origin.csv",
+    "channel_share_summary.csv",
+    "per_product_summary.csv",
+    "top_decile_summary.csv",
+    "top_error_rows.csv",
+    "sanity_baseline.csv",
+    "probabilistic_summary.csv",
+    "weight_sensitivity.csv",
+    "final_audit_summary.csv",
+    "strategy_by_horizon.csv",
+    "cv_results.csv",
+    "cv_results_all.csv",
+    "timings.json",
+    "results.json",
+)
+
+
+def model_output_artifact_paths(
+    repository_root: str | Path,
+    output_dir: str | Path,
+    *,
+    include_plot: bool = False,
+) -> list[Path]:
+    """Return only declared model outputs; never discover scratch trees."""
+    root = Path(repository_root).resolve()
+    directory = Path(output_dir)
+    if not directory.is_absolute():
+        directory = root / directory
+    names = list(MODEL_OUTPUT_FILENAMES)
+    if include_plot:
+        names.append("forecast_plot.png")
+    return [
+        (directory / name).resolve()
+        for name in names
+        if (directory / name).is_file()
+    ]
 
 
 def build_checkpoint_run_identity(
@@ -2956,24 +3007,11 @@ def main(argv=None) -> None:
     }
     write_json_atomic(os.path.join(cfg.output_dir, "timings.json"), _json_safe(timings))
 
-    output_bases = (
-        (
-            repository_root / "outputs",
-            repository_root / "webapp" / "static",
-            repository_root / "docs",
-        )
-        if canonical_output
-        else (repository_root / cfg.output_dir,)
+    output_paths = model_output_artifact_paths(
+        repository_root,
+        cfg.output_dir,
+        include_plot=options.plot,
     )
-    output_paths = [
-        path
-        for base in output_bases
-        for path in base.rglob("*")
-        if path.is_file()
-        and "checkpoints" not in path.parts
-        and "runs" not in path.parts
-        and path.name != "SHA256SUMS"
-    ]
     hashes = output_hashes(repository_root, output_paths)
     run_record = {**provenance, "output_sha256": hashes}
     run_record_path = repository_root / provenance["run_manifest"]
