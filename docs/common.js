@@ -1,10 +1,5 @@
 const CHALLENGE_MODELS = ["NeuralNet", "Chronos2"];
 const NUMBER_LOCALE = "en-GB";
-const SUITE_APPS = [
-  { label: "Classical Forecasting", href: "https://romanlysonek.github.io/vonava_predikce/" },
-  { label: "Anomaly Research", href: "https://romanlysonek.github.io/vonave_anomalie/" },
-  { label: "Chronos-2 Challenger", href: "https://romanlysonek.github.io/vonavy_chronos/", current: true },
-];
 
 async function loadResults() {
   const candidates = window.STATIC_DASHBOARD
@@ -53,19 +48,6 @@ function wireSharedLinks() {
   document.querySelectorAll("[data-evaluation-link]").forEach((link) => {
     link.href = evaluationHref();
   });
-}
-
-function renderSuiteSwitcher() {
-  if (typeof document === "undefined") return;
-  const heroTop = document.querySelector(".hero-top");
-  if (!heroTop || heroTop.querySelector(".suite-switcher")) return;
-  const switcher = document.createElement("nav");
-  switcher.className = "suite-switcher";
-  switcher.setAttribute("aria-label", "Interview assignment suite");
-  switcher.innerHTML = SUITE_APPS.map((app) => {
-    return `<a href="${app.href}"${app.current ? ' aria-current="page"' : ""}>${app.label}</a>`;
-  }).join("");
-  heroTop.appendChild(switcher);
 }
 
 function fmt(value, digits = 1) {
@@ -174,7 +156,7 @@ function renderNav(data, activeSlug = "") {
   if (!nav) return;
   const items = [
     { slug: "", label: "Challenge", color: "#ffffff", href: overviewHref() },
-    { slug: "dataset", label: "Data story", color: "#a78bfa", href: datasetHref() },
+    { slug: "dataset", label: "Data", color: "#a78bfa", href: datasetHref() },
     { slug: "evaluation", label: "Evaluation", color: "#9ca3af", href: evaluationHref() },
     ...(data.models || []).filter((model) => CHALLENGE_MODELS.includes(model.key)).map((model) => ({
       slug: model.slug,
@@ -198,4 +180,3 @@ if (window.Chart) {
 }
 
 wireSharedLinks();
-renderSuiteSwitcher();

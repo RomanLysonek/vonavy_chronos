@@ -3,21 +3,19 @@ name = "vonavy_chronos"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.139.0",
     "matplotlib>=3.11.0",
     "numpy>=2.5.1",
     "pandas>=3.0.3",
     "pyarrow>=25.0.0",
     "scikit-learn>=1.9.0",
     "torch>=2.13.0",
+    "uvicorn[standard]>=0.51.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-]
-preview = [
-    "fastapi>=0.139.0",
-    "uvicorn[standard]>=0.51.0",
 ]
 
 [tool.pytest.ini_options]

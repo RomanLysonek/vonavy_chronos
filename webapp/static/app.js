@@ -49,6 +49,15 @@ function renderKpis(data, regime) {
   const devDelta = relativeDelta(devMap.Chronos2?.WAPE, devMap.NeuralNet?.WAPE);
   const benchDelta = relativeDelta(benchMap.Chronos2?.WAPE, benchMap.NeuralNet?.WAPE);
   const confirms = devWinner && benchWinner ? devWinner.model === benchWinner.model : null;
+  const audit = data.challenge?.final_audit || {};
+  const auditRows = (audit.rows || []).filter((row) => (
+    row.evaluation_regime === regime
+    && row.comparison_population === "common"
+    && row.aggregation === "global"
+  ));
+  const auditWinner = winnerFromRows(auditRows, "WAPE");
+  const auditMap = Object.fromEntries(auditRows.map((row) => [row.model, row]));
+  const auditDelta = relativeDelta(auditMap.Chronos2?.WAPE, auditMap.NeuralNet?.WAPE);
 
   const cards = [
     {
@@ -70,9 +79,10 @@ function renderKpis(data, regime) {
       color: benchWinner ? modelColor(data, benchWinner.model) : null,
     },
     {
-      label: "Recent diagnostic agreement",
-      value: confirms === null ? "Pending" : (confirms ? "Yes" : "No"),
-      sub: "Previously inspected and never used for selection",
+      label: "Consumed final audit",
+      value: auditWinner ? modelLabel(data, auditWinner.model) : (confirms === null ? "Pending" : "Unavailable"),
+      sub: auditWinner ? `${ratePct(auditWinner.WAPE)} WAPE · Chronos Δ ${signedPct(auditDelta)}` : "Non-selection evidence",
+      color: auditWinner ? modelColor(data, auditWinner.model) : null,
     },
   ];
 
@@ -165,18 +175,6 @@ function renderFairness(data, regime) {
   ];
   document.getElementById("fairness-list").innerHTML = items.map(([title, body]) => `
     <div class="definition-item"><strong>${title}</strong><span>${body}</span></div>
-  `).join("");
-}
-
-function renderLineage(data) {
-  const lineage = data.challenge?.lineage || [];
-  document.getElementById("lineage-grid").innerHTML = lineage.map((item, index) => `
-    <article class="lineage-card">
-      <span class="lineage-index">0${index + 1}</span>
-      <h3>${item.step}</h3>
-      <strong>${item.decision}</strong>
-      <p>${item.reason}</p>
-    </article>
   `).join("");
 }
 
@@ -372,12 +370,14 @@ function renderEvidence(data) {
 
   const probability = data.probabilistic_evaluation || { status: "not_evaluated" };
   const metric = (probability.metrics || []).find((row) => row.origin_type === "recent_benchmark");
+  const auditMetric = (probability.metrics || []).find((row) => row.origin_type === "final_audit");
   document.getElementById("probabilistic-evidence").innerHTML = probability.status === "evaluated" && metric
     ? [
       ["Status", "Evaluated on real out-of-fold q10/q50/q90 forecasts."],
-      ["80% interval coverage", ratePct(metric.interval_coverage)],
-      ["Mean interval width", fmt(metric.interval_mean_width)],
+      ["Recent 80% interval", `${ratePct(metric.interval_coverage)} coverage · ${fmt(metric.interval_mean_width)} mean width`],
+      ["Recent empirical q10 / q50 / q90", `${ratePct(metric.empirical_q10)} / ${ratePct(metric.empirical_q50)} / ${ratePct(metric.empirical_q90)}`],
       ["Pinball q10 / q50 / q90", `${fmt(metric.pinball_q10, 2)} / ${fmt(metric.pinball_q50, 2)} / ${fmt(metric.pinball_q90, 2)}`],
+      ["Final-audit 80% interval", auditMetric ? `${ratePct(auditMetric.interval_coverage)} coverage · ${fmt(auditMetric.interval_normalized_width, 2)} normalised width` : "Not available"],
     ].map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("")
     : `<div class="definition-item"><strong>Not yet evaluated</strong><span>${probability.reason || "A reproducible quantile rerun is required."}</span></div>`;
 
@@ -448,7 +448,6 @@ async function main() {
       renderChallengeColumns(data, regime);
       renderComparisonChart(data, regime);
       renderFairness(data, regime);
-      renderLineage(data);
       renderFoldTable(data, regime);
       renderHorizonChart(data, regime, horizonMetricSelect.value);
       renderTopDemand(data);

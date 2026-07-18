@@ -11,7 +11,11 @@ from dashboard_artifacts import (
     summarize_probabilistic_oof,
     summarize_sanity_baseline,
 )
-from export_results import REQUIRED_MODEL_ARTIFACTS, export_from_artifacts
+from export_results import (
+    REQUIRED_MODEL_ARTIFACTS,
+    export_from_artifacts,
+    verify_authenticated_snapshot,
+)
 from finalize_publication import checkpoint_metadata
 from pipeline import (
     OOF_MODEL_COLUMNS,
@@ -405,21 +409,46 @@ def test_publication_finalizer_preserves_authenticated_checkpoint_metadata(tmp_p
     assert checkpoint_provenance == authenticated
 
 
+def test_publication_finalizer_preserves_legacy_checkpoint_observation_without_files(
+    tmp_path,
+):
+    observed = {"outputs/checkpoints/fold.pkl": "post-run-hash"}
+    verification, checkpoint_provenance = checkpoint_metadata(
+        tmp_path,
+        {
+            "run_id": "941bbd3a1dd0cf23",
+            "checkpoint_provenance": {
+                "status": "post_run_observation_not_immutable_at_run",
+                "post_run_files_sha256": observed,
+            },
+        },
+    )
+    assert verification["status"] == "incomplete"
+    assert checkpoint_provenance["post_run_files_sha256"] == observed
+
+
 def test_static_publisher_round_trip(tmp_path):
     static = tmp_path / "webapp" / "static"
     outputs = tmp_path / "outputs"
     static.mkdir(parents=True)
     outputs.mkdir()
     (static / "index.html").write_text(
-        '<script src="/static/common.js"></script>', encoding="utf-8"
+        '<a href="/dataset">Data</a><a href="/evaluation">Evaluation</a>'
+        '<a href="/">Challenge</a><script src="/static/common.js"></script>',
+        encoding="utf-8",
     )
     (static / "common.js").write_text("const ok = true;\n", encoding="utf-8")
     (outputs / "results.json").write_text('{"ok": true}\n', encoding="utf-8")
     publish_static_dashboard(tmp_path, outputs / "results.json")
     check_static_dashboard(tmp_path)
-    assert "window.STATIC_DASHBOARD" in (
-        tmp_path / "docs" / "index.html"
-    ).read_text()
+    published = (tmp_path / "docs" / "index.html").read_text()
+    assert "window.STATIC_DASHBOARD" in published
+    assert 'href="./dataset.html"' in published
+    assert 'href="./evaluation.html"' in published
+    assert 'href="./index.html"' in published
+    assert 'src="./common.js"' in published
+    assert 'href="/' not in published
+    assert 'src="/' not in published
 
 
 def test_artifact_only_exporter_end_to_end(tmp_path):
@@ -629,6 +658,12 @@ def test_artifact_only_exporter_end_to_end(tmp_path):
     assert payload["project"]["status"] == "complete"
     assert set(payload["forecasts"]) == {"NeuralNet", "Chronos2"}
     assert payload["generated_at"] == provenance["generated_at"]
+
+    submission_path = out / "submission.csv"
+    original_submission = submission_path.read_bytes()
+    submission_path.unlink()
+    assert verify_authenticated_snapshot(tmp_path) == ["outputs/submission.csv"]
+    submission_path.write_bytes(original_submission)
 
     dev_path = out / "dev_summary.csv"
     original_dev = dev_path.read_bytes()

@@ -33,9 +33,9 @@
   <main id="app">
     <section class="selection-band challenge-status-band">
       <div>
-        <span class="selection-eyebrow">Development-selected winner</span>
+        <span class="selection-eyebrow">Final experiment · development-selected winner</span>
         <strong id="challenge-winner">Loading…</strong>
-        <p id="challenge-status-copy">Both contenders are evaluated on identical origins and rows.</p>
+        <p id="challenge-status-copy">The zero-shot challenger did not beat the frozen incumbent.</p>
       </div>
       <div class="controls">
         <label for="regime-select">Scoring lens</label>
@@ -81,19 +81,31 @@
       </section>
     </section>
 
-    <section class="panel">
-      <div class="panel-header">
-        <h2>How we reached “Best NN”</h2>
-        <p>Only the decisions that define the frozen incumbent; historical model scores are deliberately omitted.</p>
-      </div>
-      <div class="lineage-grid" id="lineage-grid"></div>
+    <section class="panel-grid evidence-grid">
+      <section class="panel">
+        <div class="panel-header"><h2>Frozen before the challenge</h2><p>Only the incumbent facts needed to interpret the experiment.</p></div>
+        <div class="definition-list">
+          <div class="definition-item"><strong>Selection boundary</strong><span>Best NN was chosen from development evidence before Chronos-2 entered the comparison.</span></div>
+          <div class="definition-item"><strong>Task-specific design</strong><span>A direct seven-horizon network learns guarded residual corrections around a same-weekday retail anchor.</span></div>
+          <div class="definition-item"><strong>No post-challenge retuning</strong><span>Its architecture, features, seeds and 60/25/15 selection weights remained fixed.</span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Why Chronos-2 likely lost</h2><p>Mechanistic hypotheses, not claims established by unrun ablations.</p></div>
+        <div class="definition-list">
+          <div class="definition-item"><strong>Limited domain evidence</strong><span>Thirty related series and roughly five annual cycles provide a narrow local sample for zero-shot transfer.</span></div>
+          <div class="definition-item"><strong>Local retail regimes</strong><span>Channel migration, product launches, stock censoring, campaigns and concentrated holiday events create project-specific dynamics.</span></div>
+          <div class="definition-item"><strong>No task adaptation</strong><span>The challenger was deliberately evaluated zero-shot: no fine-tuning, calibration fit, blending or task-specific parameter updates.</span></div>
+          <div class="definition-item"><strong>Inductive-bias mismatch</strong><span>The incumbent explicitly encodes seasonal anchors and retail covariates; the pretrained model may not exploit those signals as effectively here.</span></div>
+        </div>
+      </section>
     </section>
 
     <section class="panel-grid">
       <section class="panel">
         <div class="panel-header">
           <h2>Fold-by-fold WAPE</h2>
-          <p>Recent benchmark; each fold uses the same rows for both contenders</p>
+          <p>Recent diagnostic; each fold uses the same rows for both contenders</p>
         </div>
         <div class="table-wrap">
           <table class="data-table" id="fold-table">
@@ -144,6 +156,16 @@
       <section class="panel">
         <div class="panel-header"><h2>Sanity baseline</h2><p>Same split and rows; supporting evidence, not another leaderboard.</p></div>
         <div class="table-wrap"><table class="data-table" id="baseline-table"><thead><tr><th>Estimator</th><th>WAPE</th><th>MAE</th><th>Bias</th><th>n</th></tr></thead><tbody></tbody></table></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><h2>What would justify another attempt</h2><p>A rerun is warranted only if the evidence base or learning protocol materially changes.</p></div>
+        <div class="definition-list">
+          <div class="definition-item"><strong>More representative domain data</strong><span>More products, longer histories, additional event cycles, or comparable retail panels would test whether transfer improves with broader support.</span></div>
+          <div class="definition-item"><strong>Development-only adaptation</strong><span>A pre-specified fine-tuning or calibration protocol must be selected without looking at a new final audit.</span></div>
+          <div class="definition-item"><strong>Richer business context</strong><span>Inventory quantities, traffic, product metadata and planned events could reduce the covariate mismatch rather than asking a target model to infer local regimes.</span></div>
+          <div class="definition-item"><strong>A new untouched audit</strong><span>The consumed audit cannot become fresh evidence again. A future claim needs newly reserved origins and a pre-registered success threshold.</span></div>
+        </div>
       </section>
       <section class="panel">
         <div class="panel-header"><h2>Probabilistic evaluation</h2><p>q10/q50/q90 are shown only when real OOF calibration evidence exists.</p></div>

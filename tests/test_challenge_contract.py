@@ -170,9 +170,47 @@ def test_branding_and_local_port_are_frozen():
     root = Path(__file__).resolve().parents[1]
     server_source = (root / "webapp" / "server.py").read_text()
     readme = (root / "README.md").read_text()
+    pyproject = (root / "pyproject.toml").read_text()
 
     assert "Best NN vs Chronos-2" in server_source
-    assert "port=8998" in server_source
+    assert "PORT = 8998" in server_source
+    assert "port=PORT" in server_source
     assert "http://127.0.0.1:8998" in readme
+    assert "uv run python webapp/server.py" in readme
+    assert "uv run python -m webapp.server" in readme
+    assert '"fastapi>=0.139.0"' in pyproject
+    assert '"uvicorn[standard]>=0.51.0"' in pyproject
+    assert "preview = [" not in pyproject
     assert "Our Best" not in server_source + readme
-    assert "port=8999" not in server_source
+    assert "8999" not in server_source + readme
+
+
+def test_authored_presentation_is_standalone_and_two_contender_focused():
+    root = Path(__file__).resolve().parents[1]
+    presentation_paths = [
+        root / "README.md",
+        root / "webapp" / "static" / "common.js",
+        root / "webapp" / "static" / "styles.css",
+        *sorted((root / "webapp" / "static").glob("*.html")),
+        *sorted((root / "webapp" / "static").glob("*.js")),
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in presentation_paths)
+    forbidden = [
+        "SUITE" + "_APPS",
+        "suite-" + "switcher",
+        "Classical" + " Forecasting",
+        "Anomaly" + " Research",
+        "vonava_" + "predikce",
+        "vonave_" + "anomalie",
+    ]
+    for fragment in forbidden:
+        assert fragment not in combined
+
+    common = (root / "webapp" / "static" / "common.js").read_text(encoding="utf-8")
+    for label in ("Challenge", "Data", "Evaluation", "Best NN", "Chronos-2"):
+        assert label in combined
+    assert 'label: "Data"' in common
+    assert "Why Chronos-2 likely lost" in combined
+    assert "What would justify another attempt" in combined
+    assert "consumed final audit" in combined.lower()
+    assert "incomplete" in combined.lower()

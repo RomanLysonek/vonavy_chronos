@@ -140,6 +140,14 @@ def checkpoint_metadata(root: Path, model_manifest: dict) -> tuple[dict, dict]:
         )
     is_known_legacy_run = model_manifest.get("run_id") == "941bbd3a1dd0cf23"
     checkpoints = sorted((root / "outputs" / "checkpoints").rglob("*.pkl"))
+    observed_hashes = output_hashes(root, checkpoints)
+    prior_observation = model_manifest.get("checkpoint_provenance")
+    if (
+        not observed_hashes
+        and isinstance(prior_observation, dict)
+        and isinstance(prior_observation.get("post_run_files_sha256"), dict)
+    ):
+        observed_hashes = prior_observation["post_run_files_sha256"]
     return (
         {
             "status": "incomplete",
@@ -165,7 +173,7 @@ def checkpoint_metadata(root: Path, model_manifest: dict) -> tuple[dict, dict]:
             "status": "post_run_observation_not_immutable_at_run",
             "observed_reused_folds": 0 if is_known_legacy_run else None,
             "observed_trained_folds": 19 if is_known_legacy_run else None,
-            "post_run_files_sha256": output_hashes(root, checkpoints),
+            "post_run_files_sha256": observed_hashes,
         },
     )
 
