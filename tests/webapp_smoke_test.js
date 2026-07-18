@@ -219,11 +219,76 @@ assert.ok(
 );
 assert.ok(/\.promo-bar > :last-child\s*\{[^}]*text-align: right;/s.test(styles));
 assert.ok(
-  /@media \(max-width: 700px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 57px;[^}]*padding: 8px 24px;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*column-gap: 24px;[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(odd\)\s*\{[^}]*text-align: left;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(even\)\s*\{[^}]*text-align: right;/s.test(styles),
+  /@media \(max-width: 800px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 57px;[^}]*padding: 8px 24px;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*column-gap: 24px;[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(odd\)\s*\{[^}]*text-align: left;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(even\)\s*\{[^}]*text-align: right;/s.test(styles),
 );
 assert.ok(
-  /@media \(max-width: 480px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 89px;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > \*\s*\{[^}]*text-align: left;/s.test(styles),
+  /@media \(max-width: 480px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 89px;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(n\)\s*\{[^}]*text-align: left;/s.test(styles),
 );
+
+function matchingBrace(source, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  throw new Error("Unbalanced CSS block");
+}
+
+function promoSelectorMatches(selector, childIndex) {
+  const childSelector = selector.trim().replace(/^\.promo-bar\s*>\s*/, "");
+  if (childSelector === "*") return true;
+  if (childSelector === ":first-child") return childIndex === 1;
+  if (childSelector === ":last-child") return childIndex === expectedPromoFacts.length;
+  const nth = childSelector.match(/^:nth-child\((n|odd|even|\d+)\)$/);
+  if (!nth) return false;
+  if (nth[1] === "n") return true;
+  if (nth[1] === "odd") return childIndex % 2 === 1;
+  if (nth[1] === "even") return childIndex % 2 === 0;
+  return childIndex === Number(nth[1]);
+}
+
+function selectorSpecificity(selector) {
+  return (selector.match(/[.#:]|:(?=[\w-])/g) || []).length;
+}
+
+function computedPromoTextAlign(css, childIndex, viewportWidth) {
+  const mediaRanges = [];
+  for (const match of css.matchAll(/@media \(max-width: (\d+)px\)\s*\{/g)) {
+    mediaRanges.push({
+      maxWidth: Number(match[1]),
+      start: match.index,
+      end: matchingBrace(css, match.index + match[0].lastIndexOf("{")),
+    });
+  }
+
+  let computed = null;
+  let order = 0;
+  for (const match of css.matchAll(/(\.promo-bar\s*>\s*[^{,]+(?:,\s*\.promo-bar\s*>\s*[^{,]+)*)\s*\{([^}]*)\}/g)) {
+    const media = mediaRanges.find(({ start, end }) => start < match.index && match.index < end);
+    if (media && viewportWidth > media.maxWidth) continue;
+    const alignment = match[2].match(/text-align:\s*(left|center|right)\s*;/);
+    if (!alignment) continue;
+    for (const selector of match[1].split(",")) {
+      if (!promoSelectorMatches(selector, childIndex)) continue;
+      const candidate = { value: alignment[1], specificity: selectorSpecificity(selector), order };
+      if (
+        !computed
+        || candidate.specificity > computed.specificity
+        || (candidate.specificity === computed.specificity && candidate.order > computed.order)
+      ) {
+        computed = candidate;
+      }
+    }
+    order += 1;
+  }
+  return computed?.value;
+}
+
+assert.strictEqual(computedPromoTextAlign(styles, 2, 480), "left");
+assert.strictEqual(computedPromoTextAlign(styles, 4, 480), "left");
 const heroRule = styles.match(/header\.hero\s*\{[^}]*\}/s)[0];
 assert.ok(heroRule.includes("padding: 28px var(--page-padding-inline) 0;"));
 const heroTopRule = styles.match(/\.hero-top\s*\{[^}]*\}/s)[0];
