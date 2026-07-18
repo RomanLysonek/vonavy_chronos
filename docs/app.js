@@ -277,14 +277,16 @@ function renderProductVerdict(data) {
 function populateProductSelector(data) {
   const select = document.getElementById("product-select");
   const products = Object.keys(data.history || {}).sort((a, b) => Number(a) - Number(b));
+  if (!products.length) throw new Error("Product explorer history is missing from results.json.");
   select.innerHTML = products.map((product) => `<option value="${product}">Product ${product}</option>`).join("");
   return products[0];
 }
 
 function renderProductLegend(data, refresh) {
   document.getElementById("product-model-legend").innerHTML = CHALLENGE_MODELS.map((key) => {
-    const active = visibleProductModels.has(key);
-    return `<button type="button" class="product-model-chip${active ? " active" : ""}" data-model="${key}" style="--mc:${modelColor(data, key)}" ${modelAvailable(data, key) ? "" : "disabled"}>${modelLabel(data, key)}</button>`;
+    const available = modelAvailable(data, key);
+    const active = available && visibleProductModels.has(key);
+    return `<button type="button" class="product-model-chip${active ? " active" : ""}" data-model="${key}" style="--mc:${modelColor(data, key)}" ${available ? "" : "disabled"}>${modelLabel(data, key)}</button>`;
   }).join("");
   document.querySelectorAll(".product-model-chip").forEach((button) => {
     button.addEventListener("click", () => {
@@ -298,67 +300,99 @@ function renderProductLegend(data, refresh) {
 }
 
 function renderProductChart(data, productId) {
-  const history = data.history?.[productId] || { dates: [], quantity: [] };
-  const forecasts = forecastsFor(data);
-  const datasets = [];
-  if (showProductHistory) {
-    datasets.push({
-      label: "History",
-      data: history.dates.map((date, index) => ({ x: date, y: history.quantity[index] })),
-      borderColor: "#111111",
-      backgroundColor: "#111111",
-      pointRadius: 0,
-      borderWidth: 1.5,
+  try {
+    const history = chartSeries(data.history?.[productId], `Product ${productId} history`);
+    const forecasts = forecastsFor(data);
+    const selected = CHALLENGE_MODELS.filter((key) => (
+      visibleProductModels.has(key) && modelAvailable(data, key)
+    ));
+    const forecastSeries = selected.map((key) => [
+      key,
+      chartSeries(forecasts?.[key]?.[productId], `${modelLabel(data, key)} forecast for product ${productId}`),
+    ]);
+    if (!forecastSeries.length) throw new Error("Select at least one forecast series.");
+    const forecastDates = forecastSeries[0][1].dates;
+    forecastSeries.forEach(([key, series]) => {
+      if (series.dates.join() !== forecastDates.join()) {
+        throw new Error(`${modelLabel(data, key)} forecast dates do not match the product explorer axis.`);
+      }
     });
-  }
-  CHALLENGE_MODELS.forEach((key) => {
-    if (!visibleProductModels.has(key)) return;
-    const series = forecasts?.[key]?.[productId];
-    if (!series) return;
-    datasets.push({
-      label: modelLabel(data, key),
-      data: series.dates.map((date, index) => ({ x: date, y: series.quantity[index] })),
-      borderColor: modelColor(data, key),
-      backgroundColor: modelColor(data, key),
-      borderWidth: 3,
-      pointRadius: 3,
-    });
-    const interval = data.probabilistic_evaluation?.status === "evaluated"
-      ? data.probabilistic_evaluation?.forecasts?.Chronos2?.[productId]
-      : null;
-    if (key === "Chronos2" && interval) {
+    const labels = showProductHistory ? [...history.dates, ...forecastDates] : [...forecastDates];
+    const datasets = [];
+    if (showProductHistory) {
       datasets.push({
-        label: "Chronos q90",
-        data: interval.dates.map((date, index) => ({ x: date, y: interval.q90[index] })),
-        borderColor: "transparent",
-        backgroundColor: "rgba(255, 153, 0, 0.16)",
+        label: "History",
+        data: [...history.quantity, ...forecastDates.map(() => null)],
+        borderColor: "#111111",
+        backgroundColor: "transparent",
         pointRadius: 0,
-      });
-      datasets.push({
-        label: "Chronos 80% interval",
-        data: interval.dates.map((date, index) => ({ x: date, y: interval.q10[index] })),
-        borderColor: "transparent",
-        backgroundColor: "rgba(255, 153, 0, 0.16)",
-        pointRadius: 0,
-        fill: "-1",
+        borderWidth: 2,
       });
     }
-  });
-  if (productChart) productChart.destroy();
-  productChart = new Chart(document.getElementById("chart-product"), {
-    type: "line",
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      parsing: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { type: "category", grid: { display: false } },
-        y: { beginAtZero: true, grid: { color: CHART_GRID } },
+    forecastSeries.forEach(([key, series]) => {
+      datasets.push({
+        label: modelLabel(data, key),
+        data: showProductHistory
+          ? [...history.dates.map(() => null), ...series.quantity]
+          : [...series.quantity],
+        borderColor: modelColor(data, key),
+        backgroundColor: "transparent",
+        borderWidth: 3,
+        pointRadius: 3,
+      });
+      const interval = key === "Chronos2" && data.probabilistic_evaluation?.status === "evaluated"
+        ? chartInterval(
+          data.probabilistic_evaluation?.forecasts?.Chronos2?.[productId],
+          `Chronos-2 interval for product ${productId}`,
+        )
+        : null;
+      if (interval) {
+        if (interval.dates.join() !== forecastDates.join()) {
+          throw new Error("Chronos-2 interval dates do not match the product explorer axis.");
+        }
+        const historyPadding = showProductHistory ? history.dates.map(() => null) : [];
+        datasets.push({
+          label: "Chronos q90",
+          data: [...historyPadding, ...interval.q90],
+          borderColor: "transparent",
+          backgroundColor: "rgba(255, 153, 0, 0.16)",
+          pointRadius: 0,
+        });
+        datasets.push({
+          label: "Chronos 80% interval",
+          data: [...historyPadding, ...interval.q10],
+          borderColor: "transparent",
+          backgroundColor: "rgba(255, 153, 0, 0.16)",
+          pointRadius: 0,
+          fill: "-1",
+        });
+      }
+    });
+    clearChartError("chart-product");
+    if (productChart) productChart.destroy();
+    productChart = new Chart(document.getElementById("chart-product"), {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            display: true,
+            grid: { display: false },
+            ticks: { display: true, autoSkip: true, maxTicksLimit: showProductHistory ? 10 : 7 },
+          },
+          y: { display: true, beginAtZero: true, grid: { color: CHART_GRID } },
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    if (productChart) productChart.destroy();
+    productChart = null;
+    showChartError("chart-product", `Product explorer unavailable: ${error.message}`);
+  }
 }
 
 function renderEvidence(data) {

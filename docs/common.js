@@ -131,6 +131,67 @@ function forecastsFor(data) {
   return data.forecasts_by_strategy?.direct || data.forecasts || {};
 }
 
+function chartSeries(series, label) {
+  if (!series || !Array.isArray(series.dates) || !Array.isArray(series.quantity)) {
+    throw new Error(`${label} is missing dates or quantity arrays.`);
+  }
+  if (!series.dates.length) throw new Error(`${label} is empty.`);
+  if (series.dates.length !== series.quantity.length) {
+    throw new Error(`${label} has ${series.dates.length} dates but ${series.quantity.length} values.`);
+  }
+  if (series.dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(String(date)))) {
+    throw new Error(`${label} contains a non-ISO date.`);
+  }
+  if (series.quantity.some((value) => !Number.isFinite(Number(value)))) {
+    throw new Error(`${label} contains a non-numeric value.`);
+  }
+  return series;
+}
+
+function chartInterval(series, label) {
+  if (
+    !series
+    || !Array.isArray(series.dates)
+    || !Array.isArray(series.q10)
+    || !Array.isArray(series.q90)
+  ) {
+    throw new Error(`${label} is missing dates, q10, or q90 arrays.`);
+  }
+  if (!series.dates.length) throw new Error(`${label} is empty.`);
+  if (series.dates.length !== series.q10.length || series.dates.length !== series.q90.length) {
+    throw new Error(`${label} dates and quantiles have different lengths.`);
+  }
+  if (series.dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(String(date)))) {
+    throw new Error(`${label} contains a non-ISO date.`);
+  }
+  if ([...series.q10, ...series.q90].some((value) => !Number.isFinite(Number(value)))) {
+    throw new Error(`${label} contains a non-numeric value.`);
+  }
+  return series;
+}
+
+function showChartError(canvasId, message) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  canvas.hidden = true;
+  let error = document.getElementById(`${canvasId}-error`);
+  if (!error) {
+    error = document.createElement("p");
+    error.id = `${canvasId}-error`;
+    error.className = "chart-data-error";
+    canvas.parentElement?.appendChild(error);
+  }
+  error.textContent = message;
+  error.hidden = false;
+}
+
+function clearChartError(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (canvas) canvas.hidden = false;
+  const error = document.getElementById(`${canvasId}-error`);
+  if (error) error.hidden = true;
+}
+
 function updateSharedCopy(data) {
   const productCount = Number(data.config?.num_products) || 30;
   document.querySelectorAll(".promo-dataset-link").forEach((item) => {
@@ -156,7 +217,7 @@ function renderNav(data, activeSlug = "") {
   if (!nav) return;
   const items = [
     { slug: "", label: "Challenge", color: "#ffffff", href: overviewHref() },
-    { slug: "dataset", label: "Data", color: "#a78bfa", href: datasetHref() },
+    { slug: "dataset", label: "Data Story", color: "#a78bfa", href: datasetHref() },
     { slug: "evaluation", label: "Evaluation", color: "#9ca3af", href: evaluationHref() },
     ...(data.models || []).filter((model) => CHALLENGE_MODELS.includes(model.key)).map((model) => ({
       slug: model.slug,

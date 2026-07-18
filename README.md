@@ -1,4 +1,4 @@
-# NOTINO / Interview Assignment — Chronos-2 challenge
+# NOTINO CHRONOS — Chronos-2 challenge
 
 This repository asks one deliberately narrow question:
 
@@ -11,7 +11,7 @@ The published answer is **no**. Chronos-2 is technically suitable as a same-spli
 | Frozen incumbent | **Best NN** | `NeuralNet` | Direct seven-day multi-horizon forecast |
 | Zero-shot challenger | **Chronos-2** | `Chronos2` | Direct q10/q50/q90 forecast; q50 is the point estimate |
 
-This is a standalone final experiment, not a model portfolio. Its only pages are **Challenge**, **Data**, **Evaluation**, **Best NN**, and **Chronos-2**. In this repository, `webapp/static/` is authored source and `docs/` is generated-only.
+This is a standalone final experiment, not a model portfolio. Its only pages are **Challenge**, **Data Story**, **Evaluation**, **Best NN**, and **Chronos-2**. In this repository, `webapp/static/` is authored source and `docs/` is generated-only.
 
 ## Honest evaluation contract
 
@@ -121,6 +121,7 @@ The headline remains exactly two models. Supporting evidence is exported under d
 python -m compileall -q ml webapp
 uv run pytest -q
 node tests/webapp_smoke_test.js
+node tests/pages_http_smoke_test.js
 uv run python ml/publish_static.py --check
 ```
 

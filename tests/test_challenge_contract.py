@@ -208,9 +208,9 @@ def test_authored_presentation_is_standalone_and_two_contender_focused():
         assert fragment not in combined
 
     common = (root / "webapp" / "static" / "common.js").read_text(encoding="utf-8")
-    for label in ("Challenge", "Data", "Evaluation", "Best NN", "Chronos-2"):
+    for label in ("Challenge", "Data Story", "Evaluation", "Best NN", "Chronos-2"):
         assert label in combined
-    assert 'label: "Data"' in common
+    assert 'label: "Data Story"' in common
     assert "Why Chronos-2 likely lost" in combined
     assert "What would justify another attempt" in combined
     assert "consumed final audit" in combined.lower()
