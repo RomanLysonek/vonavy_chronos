@@ -235,14 +235,19 @@ def test_every_authored_and_generated_page_has_one_shared_description_strip():
             source = (directory / page_name).read_text(encoding="utf-8")
             assert source.count("<title") == 1
             assert source.count(title) == 1
+            assert len(
+                re.findall(r'class="description-strip model-hero\b[^"]*"', source)
+            ) == 1
             assert len(re.findall(r'class="[^"]*\bmodel-hero\b[^"]*"', source)) == 1
             assert re.search(
                 r'<header class="hero[^"]*">.*?</header>\s*'
-                r'<header class="model-hero[^"]*"[^>]*>',
+                r'<header class="description-strip model-hero[^"]*"[^>]*>',
                 source,
                 flags=re.DOTALL,
             )
-            assert source.index('class="model-hero') < source.index('<main id="app">')
+            assert source.index('class="description-strip') < source.index(
+                '<main id="app">'
+            )
 
     overview = (root / "webapp" / "static" / "index.html").read_text(
         encoding="utf-8"
@@ -257,29 +262,34 @@ def test_description_strip_geometry_and_title_are_single_source_contracts():
     styles = (root / "webapp" / "static" / "styles.css").read_text(
         encoding="utf-8"
     )
-    base_rules = re.findall(r"(?m)^\.model-hero\s*\{([^}]*)\}", styles)
+    for declaration in (
+        "--page-padding-inline: 56px;",
+        "--description-strip-padding-block: 40px;",
+        "--description-strip-border-width: 6px;",
+        "--description-strip-min-height: 300px;",
+    ):
+        assert declaration in styles
+
+    base_rules = re.findall(r"(?m)^\.description-strip\s*\{([^}]*)\}", styles)
     assert len(base_rules) == 1
     base = base_rules[0]
     for declaration in (
         "box-sizing: border-box;",
         "width: 100%;",
         "max-width: none;",
-        "min-height: 220px;",
+        "min-height: var(--description-strip-min-height);",
         "margin: 0;",
-        "padding: 40px 56px;",
-        "border-bottom: 6px solid var(--mc);",
+        "padding: var(--description-strip-padding-block) var(--page-padding-inline);",
+        "border-bottom: var(--description-strip-border-width) solid var(--mc);",
     ):
         assert declaration in base
 
-    responsive = re.search(
-        r"@media \(max-width: 900px\)\s*\{.*?"
-        r"header\.hero, main#app, footer p, \.model-hero\s*\{([^}]*)\}",
+    assert re.search(
+        r"@media \(max-width: 900px\)\s*\{\s*"
+        r":root\s*\{\s*--page-padding-inline: 24px;\s*\}",
         styles,
-        flags=re.DOTALL,
     )
-    assert responsive
-    assert "padding-left: 24px;" in responsive.group(1)
-    assert "padding-right: 24px;" in responsive.group(1)
+    assert not re.search(r"(?m)^\.model-hero\s*\{", styles)
 
     forbidden_geometry = re.compile(
         r"\b(?:box-sizing|width|max-width|margin|padding|padding-left|"
@@ -288,7 +298,12 @@ def test_description_strip_geometry_and_title_are_single_source_contracts():
     for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", styles):
         if any(
             class_name in selector
-            for class_name in (".overview-hero", ".dataset-hero", ".evaluation-hero")
+            for class_name in (
+                ".model-hero",
+                ".overview-hero",
+                ".dataset-hero",
+                ".evaluation-hero",
+            )
         ):
             assert not forbidden_geometry.search(body)
 

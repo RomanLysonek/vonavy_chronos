@@ -10,6 +10,10 @@
   --color-negative: #c62828;
   --color-chronos: #ff9900;
   --content-max: 1280px;
+  --page-padding-inline: 56px;
+  --description-strip-padding-block: 40px;
+  --description-strip-border-width: 6px;
+  --description-strip-min-height: 300px;
   --bg: var(--color-background);
   --ink: var(--color-ink);
   --panel: var(--color-background);
@@ -235,23 +239,23 @@ nav.site-nav {
 /* ---------------------------------------------------------------------- */
 /* Model detail page                                                      */
 /* ---------------------------------------------------------------------- */
-.model-hero {
+.description-strip {
+  box-sizing: border-box;
   position: relative;
   z-index: 1;
-  box-sizing: border-box;
   width: 100%;
   max-width: none;
-  min-height: 220px;
+  min-height: var(--description-strip-min-height);
   margin: 0;
-  padding: 40px 56px;
+  padding: var(--description-strip-padding-block) var(--page-padding-inline);
   border-radius: 0;
   background: var(--ink);
-  border-bottom: 6px solid var(--mc);
+  border-bottom: var(--description-strip-border-width) solid var(--mc);
 }
-.model-hero .model-badge { margin-bottom: 14px; }
-.model-hero h1 { margin: 0 0 12px; font-size: 34px; font-weight: 900; text-transform: uppercase; color: #fff; }
-.model-hero p.blurb { margin: 0 0 18px; color: #b8b8b8; max-width: 700px; font-size: 14.5px; line-height: 1.6; }
-.model-hero a.source-link {
+.description-strip .model-badge { margin-bottom: 14px; }
+.description-strip h1 { margin: 0 0 12px; font-size: 34px; font-weight: 900; text-transform: uppercase; color: #fff; }
+.description-strip p.blurb { margin: 0 0 18px; color: #b8b8b8; max-width: 700px; font-size: 14.5px; line-height: 1.6; }
+.description-strip a.source-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -266,7 +270,7 @@ nav.site-nav {
   padding: 10px 18px;
   border-radius: 0;
 }
-.model-hero a.source-link:hover { background: var(--mc); color: #fff; border-color: var(--mc); }
+.description-strip a.source-link:hover { background: var(--mc); color: #fff; border-color: var(--mc); }
 
 .kpi-value.model-accent { color: var(--mc); }
 
@@ -403,10 +407,11 @@ footer a { color: #fff; }
 footer code { background: #2a2a2a; color: #fff; padding: 2px 6px; border-radius: 0; }
 
 @media (max-width: 900px) {
+  :root { --page-padding-inline: 24px; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .panel-grid { grid-template-columns: 1fr; }
   .panel-grid .panel + .panel { border-left: 1px solid var(--ink); border-top: none; margin-top: -1px; }
-  header.hero, main#app, footer p, .model-hero { padding-left: 24px; padding-right: 24px; }
+  header.hero, main#app, footer p { padding-left: 24px; padding-right: 24px; }
   .hero-title-block { text-align: left; }
 }
 
