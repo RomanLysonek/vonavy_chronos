@@ -53,6 +53,8 @@ assert.ok(!index.includes("VONAVY_CHRONOS"));
 assert.ok(!index.includes("Foundation Model Challenge"));
 assert.ok(index.includes("Sanity baseline"));
 assert.ok(index.includes("Evidence provenance"));
+assert.ok(index.includes("Recent diagnostic; each fold uses the same rows for both contenders"));
+assert.ok(!index.includes("Recent benchmark; each fold"));
 assert.ok(index.includes("Why Chronos-2 likely lost"));
 assert.ok(index.includes("What would justify another attempt"));
 const presentationFiles = [
