@@ -430,22 +430,24 @@ def test_chronos_promo_has_safe_computed_geometry_at_responsive_boundaries(tmp_p
     if not chrome:
         pytest.skip("Chrome/Chromium is required for rendered promo geometry")
 
-    at_800 = _render_promo_geometry(tmp_path, chrome, 800)
-    assert at_800 == {
-        "viewportWidth": 800,
-        "columns": 2,
-        "minHeight": "57px",
-        "rowGap": "8px",
-        "alignments": ["left", "right", "left", "right"],
-        "overlaps": [],
-    }
+    for viewport_width in (701, 776, 800, 801, 840):
+        geometry = _render_promo_geometry(tmp_path, chrome, viewport_width)
+        assert geometry == {
+            "viewportWidth": viewport_width,
+            "columns": 2,
+            "minHeight": "57px",
+            "rowGap": "8px",
+            "alignments": ["left", "right", "left", "right"],
+            "overlaps": [],
+        }
 
-    at_801 = _render_promo_geometry(tmp_path, chrome, 801)
-    assert at_801["viewportWidth"] == 801
-    assert at_801["columns"] == 4
-    assert at_801["minHeight"] == "40px"
-    assert at_801["alignments"] == ["left", "center", "center", "right"]
-    assert at_801["overlaps"] == []
+    for viewport_width in (841, 900, 901):
+        geometry = _render_promo_geometry(tmp_path, chrome, viewport_width)
+        assert geometry["viewportWidth"] == viewport_width
+        assert geometry["columns"] == 4
+        assert geometry["minHeight"] == "40px"
+        assert geometry["alignments"] == ["left", "center", "center", "right"]
+        assert geometry["overlaps"] == []
 
     at_480 = _render_promo_geometry(tmp_path, chrome, 480)
     assert at_480["columns"] == 1

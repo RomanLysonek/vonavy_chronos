@@ -219,7 +219,7 @@ assert.ok(
 );
 assert.ok(/\.promo-bar > :last-child\s*\{[^}]*text-align: right;/s.test(styles));
 assert.ok(
-  /@media \(max-width: 800px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 57px;[^}]*padding: 8px 24px;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*column-gap: 24px;[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(odd\)\s*\{[^}]*text-align: left;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(even\)\s*\{[^}]*text-align: right;/s.test(styles),
+  /@media \(max-width: 840px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 57px;[^}]*padding: 8px 24px;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*column-gap: 24px;[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(odd\)\s*\{[^}]*text-align: left;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(even\)\s*\{[^}]*text-align: right;/s.test(styles),
 );
 assert.ok(
   /@media \(max-width: 480px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 89px;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(n\)\s*\{[^}]*text-align: left;/s.test(styles),
