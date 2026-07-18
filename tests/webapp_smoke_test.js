@@ -94,13 +94,34 @@ const expectedPromoFacts = [
   "2 Contenders",
   "Same Walk-Forward Test",
 ];
-for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
-  const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
-  const promo = html.match(/<div class="promo-bar">([\s\S]*?)<\/div>/);
-  assert.ok(promo, `missing promo bar in ${htmlName}`);
-  for (const fact of expectedPromoFacts) {
-    assert.ok(promo[1].includes(fact), `${htmlName} has inconsistent promo fact: ${fact}`);
+const pageNames = ["index.html", "dataset.html", "evaluation.html", "model.html"];
+function expectedPromoMarkup(datasetHref, evaluationHref) {
+  return [
+    '<div class="promo-bar">',
+    `    <a class="promo-dataset-link" data-dataset-link href="${datasetHref}">${expectedPromoFacts[0]}</a>`,
+    `    <span id="promo-strategy">${expectedPromoFacts[1]}</span>`,
+    `    <span id="promo-model-count">${expectedPromoFacts[2]}</span>`,
+    `    <a class="promo-evaluation-link" data-evaluation-link href="${evaluationHref}">${expectedPromoFacts[3]}</a>`,
+    "  </div>",
+  ].join("\n");
+}
+for (const [directory, datasetHref, evaluationHref] of [
+  [staticDir, "/dataset", "/evaluation"],
+  [docsDir, "./dataset.html", "./evaluation.html"],
+]) {
+  for (const htmlName of pageNames) {
+    const html = fs.readFileSync(path.join(directory, htmlName), "utf8");
+    const promo = html.match(/<div class="promo-bar">[\s\S]*?<\/div>/);
+    assert.ok(promo, `missing promo bar in ${path.basename(directory)}/${htmlName}`);
+    assert.strictEqual(
+      promo[0],
+      expectedPromoMarkup(datasetHref, evaluationHref),
+      `inconsistent promo markup in ${path.basename(directory)}/${htmlName}`,
+    );
   }
+}
+for (const htmlName of pageNames) {
+  const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
   assert.ok(html.includes('lang="en-GB"'));
   assert.strictEqual((html.match(/<title/g) || []).length, 1);
   assert.ok(html.includes("<title>NOTINO - chronos</title>"));
@@ -111,9 +132,37 @@ for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.
     `${htmlName} description strip is not immediately below the shared hero`,
   );
 }
-assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
-  'item.textContent = "Same Walk-Forward Test"',
-));
+
+const commonScript = fs.readFileSync(path.join(staticDir, "common.js"), "utf8");
+for (const selector of [
+  "promo-dataset-link",
+  "promo-strategy",
+  "promo-model-count",
+  "promo-evaluation-link",
+]) {
+  assert.ok(!commonScript.includes(selector), `shared JS mutates the stable promo item: ${selector}`);
+}
+
+const stablePromoElements = new Map([
+  ["promo-strategy", { textContent: expectedPromoFacts[1] }],
+  ["promo-model-count", { textContent: expectedPromoFacts[2] }],
+  ["footer-method-text", { textContent: "" }],
+]);
+context.document = {
+  getElementById(id) { return stablePromoElements.get(id) || null; },
+  querySelectorAll() {
+    return [
+      { textContent: expectedPromoFacts[0] },
+      { textContent: expectedPromoFacts[3] },
+    ];
+  },
+};
+vm.runInContext(
+  "updateSharedCopy({config:{num_products:99,horizon:14},selection:{canonical_model:'Chronos2'},models:[{key:'Chronos2',label:'Chronos-2'}],provenance:{}})",
+  context,
+);
+assert.strictEqual(stablePromoElements.get("promo-strategy").textContent, expectedPromoFacts[1]);
+assert.strictEqual(stablePromoElements.get("promo-model-count").textContent, expectedPromoFacts[2]);
 
 const styles = fs.readFileSync(path.join(staticDir, "styles.css"), "utf8");
 assert.ok(styles.includes("scrollbar-gutter: stable"));
@@ -144,14 +193,37 @@ assert.ok(
 assert.ok(styles.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
 const promoRule = styles.match(/\.promo-bar\s*\{[^}]*\}/s)[0];
 for (const declaration of [
-  "padding: 10px var(--page-padding-inline);",
-  "display: flex;",
-  "justify-content: space-between;",
-  "flex-wrap: wrap;",
-  "font-size: 11.5px;",
+  "box-sizing: border-box;",
+  "width: 100%;",
+  "min-height: 40px;",
+  "margin: 0;",
+  "padding: 8px var(--page-padding-inline);",
+  "display: grid;",
+  "grid-template-columns: repeat(4, minmax(0, 1fr));",
+  "align-items: center;",
+  "column-gap: 24px;",
+  "border-bottom: 1px solid var(--hairline);",
+  "font-size: 10px;",
+  "line-height: 1.2;",
+  "letter-spacing: 0.04em;",
 ]) {
   assert.ok(promoRule.includes(declaration), `promo bar differs from prediction header: ${declaration}`);
 }
+const promoChildRule = styles.match(/\.promo-bar > \*\s*\{[^}]*\}/s)[0];
+for (const declaration of ["min-width: 0;", "white-space: nowrap;"]) {
+  assert.ok(promoChildRule.includes(declaration));
+}
+assert.ok(/\.promo-bar > :first-child\s*\{[^}]*text-align: left;/s.test(styles));
+assert.ok(
+  /\.promo-bar > :nth-child\(2\),\s*\.promo-bar > :nth-child\(3\)\s*\{[^}]*text-align: center;/s.test(styles),
+);
+assert.ok(/\.promo-bar > :last-child\s*\{[^}]*text-align: right;/s.test(styles));
+assert.ok(
+  /@media \(max-width: 700px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 57px;[^}]*padding: 8px 24px;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*column-gap: 24px;[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(odd\)\s*\{[^}]*text-align: left;[^}]*\}[\s\S]*?\.promo-bar > :nth-child\(even\)\s*\{[^}]*text-align: right;/s.test(styles),
+);
+assert.ok(
+  /@media \(max-width: 480px\)\s*\{[\s\S]*?\.promo-bar\s*\{[^}]*min-height: 89px;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*row-gap: 8px;[^}]*\}[\s\S]*?\.promo-bar > \*\s*\{[^}]*text-align: left;/s.test(styles),
+);
 const heroRule = styles.match(/header\.hero\s*\{[^}]*\}/s)[0];
 assert.ok(heroRule.includes("padding: 28px var(--page-padding-inline) 0;"));
 const heroTopRule = styles.match(/\.hero-top\s*\{[^}]*\}/s)[0];
@@ -164,7 +236,7 @@ assert.ok(styles.includes("--content-max: 1280px"));
 assert.ok(!styles.includes("suite-" + "switcher"));
 for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
   const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
-  assert.ok(html.includes("styles.css?v=chronos-6"), `${htmlName} uses stale strip CSS`);
+  assert.ok(html.includes("styles.css?v=chronos-7"), `${htmlName} uses stale strip CSS`);
 }
 
 for (const directory of [staticDir, docsDir]) {

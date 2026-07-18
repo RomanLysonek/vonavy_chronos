@@ -17,6 +17,27 @@ from pipeline import (
 )
 
 
+PROMO_FACTS = (
+    "30 Product Time Series",
+    "7-Day Direct Forecast",
+    "2 Contenders",
+    "Same Walk-Forward Test",
+)
+
+
+def _promo_markup(dataset_href: str, evaluation_href: str) -> str:
+    return (
+        '<div class="promo-bar">\n'
+        f'    <a class="promo-dataset-link" data-dataset-link href="{dataset_href}">'
+        f"{PROMO_FACTS[0]}</a>\n"
+        f'    <span id="promo-strategy">{PROMO_FACTS[1]}</span>\n'
+        f'    <span id="promo-model-count">{PROMO_FACTS[2]}</span>\n'
+        f'    <a class="promo-evaluation-link" data-evaluation-link '
+        f'href="{evaluation_href}">{PROMO_FACTS[3]}</a>\n'
+        "  </div>"
+    )
+
+
 def _summary(models):
     return pd.DataFrame([
         {
@@ -255,6 +276,33 @@ def test_every_authored_and_generated_page_has_one_shared_description_strip():
     assert "Final challenge" in overview
     assert "Best NN vs Chronos-2" in overview
     assert "controlled negative-result experiment" in overview
+
+
+def test_every_authored_and_generated_page_has_the_same_stable_promo_bar():
+    root = Path(__file__).resolve().parents[1]
+    page_names = ("index.html", "dataset.html", "evaluation.html", "model.html")
+    directories = (
+        (root / "webapp" / "static", "/dataset", "/evaluation"),
+        (root / "docs", "./dataset.html", "./evaluation.html"),
+    )
+
+    for directory, dataset_href, evaluation_href in directories:
+        expected = _promo_markup(dataset_href, evaluation_href)
+        for page_name in page_names:
+            source = (directory / page_name).read_text(encoding="utf-8")
+            promo = re.search(r'<div class="promo-bar">.*?</div>', source, re.DOTALL)
+            assert promo
+            assert promo.group(0) == expected
+            assert source.count('class="promo-bar"') == 1
+
+    common = (root / "webapp" / "static" / "common.js").read_text(encoding="utf-8")
+    for selector in (
+        "promo-dataset-link",
+        "promo-strategy",
+        "promo-model-count",
+        "promo-evaluation-link",
+    ):
+        assert selector not in common
 
 
 def test_description_strip_geometry_and_title_are_single_source_contracts():
