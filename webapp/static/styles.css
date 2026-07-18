@@ -238,8 +238,11 @@ nav.site-nav {
 .model-hero {
   position: relative;
   z-index: 1;
+  box-sizing: border-box;
   width: 100%;
-  margin: 0 auto;
+  max-width: none;
+  min-height: 220px;
+  margin: 0;
   padding: 40px 56px;
   border-radius: 0;
   background: var(--ink);
