@@ -53,17 +53,24 @@ assert.ok(!index.includes("VONAVY_CHRONOS"));
 assert.ok(!index.includes("Foundation Model Challenge"));
 assert.ok(index.includes("Sanity baseline"));
 assert.ok(index.includes("Evidence provenance"));
-for (const [label, href] of [
-  ["Classical Forecasting", "https://romanlysonek.github.io/vonava_predikce/"],
-  ["Anomaly Research", "https://romanlysonek.github.io/vonave_anomalie/"],
-  ["Chronos-2 Challenger", "https://romanlysonek.github.io/vonavy_chronos/"],
+assert.ok(index.includes("Why Chronos-2 likely lost"));
+assert.ok(index.includes("What would justify another attempt"));
+const presentationFiles = [
+  path.join(root, "README.md"),
+  ...fs.readdirSync(staticDir).filter((name) => /\.(?:html|css|js)$/.test(name)).map((name) => path.join(staticDir, name)),
+  ...fs.readdirSync(docsDir).filter((name) => /\.(?:html|css|js|md)$/.test(name)).map((name) => path.join(docsDir, name)),
+];
+const presentation = presentationFiles.map((name) => fs.readFileSync(name, "utf8")).join("\n");
+for (const fragment of [
+  "SUITE" + "_APPS",
+  "suite-" + "switcher",
+  "Classical" + " Forecasting",
+  "Anomaly" + " Research",
+  "vonava_" + "predikce",
+  "vonave_" + "anomalie",
 ]) {
-  assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(label));
-  assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(href));
+  assert.ok(!presentation.includes(fragment), `standalone identity leak: ${fragment}`);
 }
-assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
-  'current: true',
-));
 for (const legacy of ["XGBoost", "LightGBM", "Dynamic Ridge", "Moving Average", "Seasonal Naive", "Ensemble"]) {
   assert.ok(!index.includes(legacy), `legacy contender visible in index.html: ${legacy}`);
 }
@@ -99,17 +106,19 @@ assert.ok(styles.includes("scrollbar-gutter: stable"));
 assert.ok(styles.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
 assert.ok(styles.includes(".promo-bar > *"));
 assert.ok(styles.includes("--content-max: 1280px"));
-assert.ok(styles.includes(".suite-switcher"));
+assert.ok(!styles.includes("suite-" + "switcher"));
 for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
   const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
   assert.ok(html.includes("styles.css?v=chronos-3"), `${htmlName} uses stale strip CSS`);
 }
 
-const docsIndex = fs.readFileSync(path.join(docsDir, "index.html"), "utf8");
-assert.ok(docsIndex.includes("window.STATIC_DASHBOARD = true"));
-assert.ok(!docsIndex.includes('href="/static/'));
-assert.ok(!docsIndex.includes('src="/static/'));
-assert.ok(!docsIndex.includes('href="/'));
+for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
+  const docsHtml = fs.readFileSync(path.join(docsDir, htmlName), "utf8");
+  assert.ok(docsHtml.includes("window.STATIC_DASHBOARD = true"));
+  assert.ok(!docsHtml.includes('href="/static/'));
+  assert.ok(!docsHtml.includes('src="/static/'));
+  assert.ok(!docsHtml.includes('href="/'));
+}
 assert.deepStrictEqual(
   fs.readFileSync(path.join(root, "outputs", "results.json")),
   fs.readFileSync(path.join(staticDir, "results.json")),

@@ -57,19 +57,6 @@ function renderMethod(data, model) {
   `).join("");
 }
 
-function renderLineage(data, model) {
-  const panel = document.getElementById("lineage-panel");
-  if (model.key !== "NeuralNet") {
-    panel.hidden = true;
-    return;
-  }
-  const lineage = data.challenge?.lineage || [];
-  document.getElementById("model-lineage-grid").innerHTML = lineage.map((item, index) => `
-    <article class="lineage-card"><span class="lineage-index">0${index + 1}</span><h3>${item.step}</h3><strong>${item.decision}</strong><p>${item.reason}</p></article>
-  `).join("");
-  panel.hidden = false;
-}
-
 function renderKpis(data, model) {
   const benchmark = summaryRows(data, { source: "benchmark" });
   const development = summaryRows(data, { source: "development" });
@@ -129,6 +116,43 @@ function renderHeadToHead(data, model) {
     ["Selection role", model.key === canonicalModel(data) ? "Development-selected final forecast." : "Challenger retained as a separately exported forecast, not blended into the winner."],
   ];
   document.getElementById("head-to-head-list").innerHTML = items.map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("");
+}
+
+function renderInterpretation(data, model) {
+  const isChronos = model.key === "Chronos2";
+  document.getElementById("model-interpretation-title").textContent = isChronos ? "Why zero-shot likely lost" : "Why the incumbent held";
+  document.getElementById("model-interpretation-subtitle").textContent = isChronos ? "Plausible mechanisms; no unrun ablation is presented as proof." : "A narrow interpretation of the head-to-head.";
+  const interpretation = isChronos
+    ? [
+      ["Small domain panel", "Thirty related series and roughly five annual retail cycles provide limited support for local zero-shot transfer."],
+      ["Regime-heavy demand", "Channel migration, campaigns, stock censoring and concentrated retail events are unusually local dynamics."],
+      ["No adaptation", "The pinned checkpoint received no task-specific fine-tuning, calibration fit or blending."],
+      ["Covariate / inductive-bias mismatch", "The frozen incumbent explicitly learns around local seasonal anchors and retail representations that may fit this panel better."],
+    ]
+    : [
+      ["Frozen first", "Best NN's architecture, inputs, seeds and selection weights were fixed before Chronos-2 entered the experiment."],
+      ["Project-specific learning", "Its guarded residual objective and retail feature representation were fitted on development origins from this domain."],
+      ["Consistent evidence", "It wins development selection, the previously inspected recent diagnostic and the consumed final audit."],
+      ["Limited conclusion", "The result establishes superiority for this experiment, not universal superiority over foundation models."],
+    ];
+  document.getElementById("model-interpretation-list").innerHTML = interpretation.map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("");
+
+  document.getElementById("model-next-evidence-title").textContent = isChronos ? "What would justify a retry" : "Scientific safeguards";
+  document.getElementById("model-next-evidence-subtitle").textContent = isChronos ? "A new run should change the evidence, not merely repeat the consumed audit." : "Why the incumbent claim remains bounded.";
+  const threshold = isChronos
+    ? [
+      ["Broader domain data", "More products, histories, event cycles or comparable retail panels."],
+      ["Development-only adaptation", "A pre-specified fine-tuning or calibration protocol selected without a new audit."],
+      ["Richer context", "Inventory, traffic, product metadata and planned-event inputs that directly address local regimes."],
+      ["New final audit", "Newly reserved origins and a pre-registered success threshold; the current audit is already consumed."],
+    ]
+    : [
+      ["Same rows and origins", "Both contenders share forecast keys, information cut-offs and common scoring populations."],
+      ["No post-hoc incumbent changes", "The challenger result did not trigger incumbent retuning."],
+      ["Baseline sanity", "A same-row seasonal naive remains supporting context, never a third contender."],
+      ["Provenance caveat", `Checkpoint provenance remains explicitly ${data.provenance?.verification?.status || "unknown"}; publication provenance is separately authenticated.`],
+    ];
+  document.getElementById("model-next-evidence-list").innerHTML = threshold.map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("");
 }
 
 function populateProducts(data) {
@@ -206,10 +230,10 @@ async function main() {
     updateSharedCopy(data);
     renderHero(model);
     renderMethod(data, model);
-    renderLineage(data, model);
     renderKpis(data, model);
     renderFoldChart(data, model);
     renderHeadToHead(data, model);
+    renderInterpretation(data, model);
     document.getElementById("model-pending-banner").hidden = Boolean(model.available);
 
     const firstProduct = populateProducts(data);

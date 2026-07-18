@@ -19,6 +19,8 @@ from fastapi.staticfiles import StaticFiles
 ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 RESULTS_PATH = ROOT_DIR / "outputs" / "results.json"
+HOST = "127.0.0.1"
+PORT = 8998
 
 app = FastAPI(title="VOŇAVÝ CHRONOS — Best NN vs Chronos-2")
 
@@ -73,10 +75,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if __name__ == "__main__":
     import uvicorn
 
+    module_name = "webapp.server:app" if __package__ else "server:app"
     uvicorn.run(
-        "server:app",
-        host="127.0.0.1",
-        port=8998,
-        reload=True,
-        reload_dirs=[str(Path(__file__).parent)],
+        module_name,
+        host=HOST,
+        port=PORT,
     )

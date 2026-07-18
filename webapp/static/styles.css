@@ -382,33 +382,6 @@ footer {
 }
 footer p { max-width: 1280px; margin: 0 auto; }
 
-.suite-switcher {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 1px;
-  margin-left: auto;
-  background: #333;
-  border: 1px solid #333;
-}
-
-.suite-switcher a {
-  padding: 8px 10px;
-  background: var(--ink);
-  color: #c8c8c8;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-decoration: none;
-  text-transform: uppercase;
-}
-
-.suite-switcher a:hover,
-.suite-switcher a[aria-current="page"] {
-  background: #fff;
-  color: var(--ink);
-}
-
 .evidence-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -432,7 +405,6 @@ footer code { background: #2a2a2a; color: #fff; padding: 2px 6px; border-radius:
   .panel-grid .panel + .panel { border-left: 1px solid var(--ink); border-top: none; margin-top: -1px; }
   header.hero, main#app, footer p, .model-hero { padding-left: 24px; padding-right: 24px; }
   .hero-title-block { text-align: left; }
-  .suite-switcher { justify-content: flex-start; margin-left: 0; }
 }
 
 

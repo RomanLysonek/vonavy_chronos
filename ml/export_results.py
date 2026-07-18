@@ -121,7 +121,12 @@ def _verify_hash(path: Path, expected: str, label: str) -> None:
         )
 
 
-def _load_manifests(root: Path, results: dict) -> tuple[dict, dict, dict, dict]:
+def _load_manifests(
+    root: Path,
+    results: dict,
+    *,
+    require_all_model_artifacts: bool = True,
+) -> tuple[dict, dict, dict, dict]:
     provenance = results.get("provenance")
     if not isinstance(provenance, dict):
         raise ValueError("Existing results.json has no immutable provenance")
@@ -165,6 +170,8 @@ def _load_manifests(root: Path, results: dict) -> tuple[dict, dict, dict, dict]:
             raise ValueError(
                 f"Model run manifest does not authenticate {relative_path}"
             )
+        if not (root / relative_path).exists() and not require_all_model_artifacts:
+            continue
         _verify_hash(root / relative_path, expected, relative_path)
     input_hashes = manifest.get("inputs_sha256")
     if not isinstance(input_hashes, dict):
@@ -187,6 +194,17 @@ def _load_manifests(root: Path, results: dict) -> tuple[dict, dict, dict, dict]:
         publication_manifest,
         publication_provenance,
     )
+
+
+def verify_authenticated_snapshot(repository_root: str | Path) -> list[str]:
+    root = Path(repository_root).resolve()
+    existing = _read_json(root / "outputs" / "results.json")
+    _load_manifests(root, existing, require_all_model_artifacts=False)
+    return [
+        relative
+        for relative in REQUIRED_MODEL_ARTIFACTS
+        if not (root / relative).exists()
+    ]
 
 
 def export_from_artifacts(
@@ -352,6 +370,14 @@ def main(argv=None) -> None:
     root = Path(args.repository_root).resolve()
     if args.check:
         existing = _read_json(root / "outputs" / "results.json")
+        missing = verify_authenticated_snapshot(root)
+        if missing:
+            print(
+                "Authenticated published results and retained artifacts verified; "
+                f"full artifact rebuild skipped because {len(missing)} gitignored "
+                "model artifacts are not present."
+            )
+            return
         with tempfile.TemporaryDirectory() as temporary:
             candidate_path = Path(temporary) / "results.json"
             candidate = export_from_artifacts(

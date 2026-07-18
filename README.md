@@ -4,20 +4,14 @@ This repository asks one deliberately narrow question:
 
 > Can zero-shot Amazon Chronos-2 beat the frozen custom neural network developed for the original retail forecasting assignment?
 
-The published answer is **no**. Chronos-2 is technically suitable as a same-split foundation-model benchmark, but the custom network wins materially. The project does not fine-tune Chronos, blend the contenders, or manufacture a larger leaderboard.
+The published answer is **no**. Chronos-2 is technically suitable as a same-split foundation-model benchmark, but the custom network wins materially on development selection, the previously inspected recent diagnostic, and the consumed final audit. The project does not fine-tune Chronos, blend the contenders, rerun the audit, or manufacture a larger leaderboard.
 
 | Role | Published label | Internal key | Contract |
 |---|---|---|---|
 | Frozen incumbent | **Best NN** | `NeuralNet` | Direct seven-day multi-horizon forecast |
 | Zero-shot challenger | **Chronos-2** | `Chronos2` | Direct q10/q50/q90 forecast; q50 is the point estimate |
 
-## Portfolio suite
-
-- [Classical Forecasting](https://romanlysonek.github.io/vonava_predikce/)
-- [Anomaly Research](https://romanlysonek.github.io/vonave_anomalie/)
-- [Chronos-2 Challenger](https://romanlysonek.github.io/vonavy_chronos/)
-
-All three applications are static GitHub Pages sites. In this repository, `webapp/static/` is authored source and `docs/` is generated-only.
+This is a standalone final experiment, not a model portfolio. Its only pages are **Challenge**, **Data**, **Evaluation**, **Best NN**, and **Chronos-2**. In this repository, `webapp/static/` is authored source and `docs/` is generated-only.
 
 ## Honest evaluation contract
 
@@ -27,6 +21,8 @@ All three applications are static GitHub Pages sites. In this repository, `webap
 - Both contenders use the same forecast origins, target keys, information cut-offs, availability-aware scoring population, and primary global WAPE.
 - The same-row seasonal weekday naive appears only in a compact sanity table. It is not a third contender.
 - The frozen 60/25/15 winter/regular/event weighting remains the selection rule. Equal-strata and global views report sensitivity only and never retune those weights.
+
+The negative result is consistent with a difficult zero-shot transfer setting: only 30 related domain series, strong local retail regimes and events, no task-specific adaptation or fine-tuning, and a likely mismatch between the pretrained model's inductive bias/covariate use and the incumbent's project-specific seasonal-residual design. A new attempt would need materially broader domain data, a development-only adaptation protocol, richer business covariates or metadata, and a pre-registered evaluation that preserves a new untouched audit.
 
 ## Probabilistic contract
 
@@ -63,12 +59,13 @@ Core development and tests:
 uv sync --group dev
 ```
 
-Optional FastAPI preview:
+Local FastAPI preview:
 
 ```bash
-uv sync --group preview
-uv run --group preview python webapp/server.py
+uv run python webapp/server.py
 ```
+
+The equivalent module entry point is `uv run python -m webapp.server`. Both bind exactly to <http://127.0.0.1:8998/>.
 
 Optional Chronos publication overlay:
 
@@ -95,7 +92,7 @@ python -m http.server 8998 --directory docs
 
 Open <http://127.0.0.1:8998/>.
 
-The optional FastAPI preview also uses <http://127.0.0.1:8998/> and reads `outputs/results.json` on each request.
+The FastAPI preview reads `outputs/results.json` on each request.
 
 Regenerate or verify Pages:
 
@@ -104,7 +101,7 @@ uv run python ml/publish_static.py
 uv run python ml/publish_static.py --check
 ```
 
-Rebuild presentation JSON from retained, hash-authenticated run artifacts without training:
+Verify the committed authenticated snapshot, or rebuild presentation JSON without training when the full gitignored run artifacts are locally available:
 
 ```bash
 uv run python ml/export_results.py

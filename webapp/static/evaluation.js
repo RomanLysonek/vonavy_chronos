@@ -26,6 +26,26 @@ function renderKpis(data) {
   document.getElementById("development-origins").innerHTML = originPills(registeredOrigins(data, "development", "development"));
   document.getElementById("benchmark-origins").innerHTML = originPills(registeredOrigins(data, "recent_diagnostic", "recent_benchmark"));
   document.getElementById("audit-origins").innerHTML = originPills(registeredOrigins(data, "final_audit", "final_audit"));
+  const audit = data.challenge?.final_audit || {};
+  const auditRows = Object.fromEntries((audit.rows || []).map((row) => [row.model, row]));
+  const auditDelta = Number.isFinite(Number(auditRows.Chronos2?.WAPE)) && Number.isFinite(Number(auditRows.NeuralNet?.WAPE))
+    ? Number(auditRows.Chronos2.WAPE) / Number(auditRows.NeuralNet.WAPE) - 1
+    : null;
+  document.getElementById("audit-result-note").innerHTML = `<strong>Consumed result:</strong> ${audit.winner ? modelLabel(data, audit.winner) : "Unavailable"} won the final audit${auditDelta === null ? "" : `; Chronos-2 WAPE was ${signedPct(auditDelta)} relative to Best NN`}. This evidence is non-selection and cannot be made fresh by rerunning it.`;
+
+  const probability = data.probabilistic_evaluation || {};
+  const probabilityRows = Object.fromEntries((probability.metrics || []).map((row) => [row.origin_type, row]));
+  const recent = probabilityRows.recent_benchmark;
+  const finalAudit = probabilityRows.final_audit;
+  const probabilityItems = probability.status === "evaluated" && recent
+    ? [
+      ["Recent diagnostic", `${ratePct(recent.interval_coverage)} coverage for the nominal 80% interval; q10/q50/q90 empirical rates ${ratePct(recent.empirical_q10)} / ${ratePct(recent.empirical_q50)} / ${ratePct(recent.empirical_q90)}.`],
+      ["Recent interval width", `${fmt(recent.interval_mean_width)} mean width; ${fmt(recent.interval_normalized_width, 2)} normalised width.`],
+      ["Final audit", finalAudit ? `${ratePct(finalAudit.interval_coverage)} interval coverage; q50 empirical rate ${ratePct(finalAudit.empirical_q50)}.` : "No final-audit interval evidence."],
+      ["Interpretation", "Intervals quantify uncertainty but do not overturn the point-forecast decision: Chronos q50 loses on the pre-specified WAPE comparison."],
+    ]
+    : [["Not evaluated", probability.reason || "Authenticated quantile artifacts are unavailable."]];
+  document.getElementById("evaluation-probability").innerHTML = probabilityItems.map(([title, body]) => `<div class="definition-item"><strong>${title}</strong><span>${body}</span></div>`).join("");
 
   const weights = data.config?.validation_stratum_weights || {};
   const strata = [

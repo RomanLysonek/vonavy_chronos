@@ -55,6 +55,7 @@
     <section class="panel">
       <div class="panel-header"><h2>Final audit origins</h2><p>Consumed once by the publication run; subsequent executions are labelled reproductions.</p></div>
       <div class="origin-list" id="audit-origins"></div>
+      <div class="diagnostic-note" id="audit-result-note"></div>
     </section>
 
     <section class="panel">
@@ -80,6 +81,11 @@
         <div class="definition-item"><strong>Forbidden future information</strong><span>Target quantities, future availability realization, and any lag or rolling value that would require post-origin demand.</span></div>
         <div class="definition-item"><strong>Chronos-specific guard</strong><span>Stockouts and synthetic gaps are masked as missing history; future_df never receives quantities or realized availability.</span></div>
       </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>Quantile and interval evidence</h2><p>Chronos uncertainty is reported from real OOF q10/q50/q90 forecasts, not reconstructed from point errors.</p></div>
+      <div class="definition-list" id="evaluation-probability"></div>
     </section>
   </main>
 
