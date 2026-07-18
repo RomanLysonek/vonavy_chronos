@@ -34,7 +34,9 @@ jobs:
           python ml/publish_static.py --check
           sha256sum -c outputs/SHA256SUMS
       - name: Run static smoke checks
-        run: node tests/webapp_smoke_test.js
+        run: |
+          node tests/webapp_smoke_test.js
+          node tests/pages_http_smoke_test.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

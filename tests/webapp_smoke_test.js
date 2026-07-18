@@ -50,7 +50,9 @@ assert.ok(index.includes("controlled negative-result experiment"));
 assert.ok(!index.includes("One frozen incumbent"));
 assert.ok(!index.includes("No irrelevant leaderboard"));
 assert.ok(index.includes('<span class="brand-logo">NOTINO</span>'));
-assert.ok(index.includes('<span class="brand-tagline">/ Interview Assignment</span>'));
+assert.ok(index.includes('<span class="brand-tagline">CHRONOS</span>'));
+assert.ok(index.includes("<h1>Quantity Forecast Dashboard</h1>"));
+assert.ok(!index.includes("/ Interview Assignment"));
 assert.ok(!index.includes("VONAVY_CHRONOS"));
 assert.ok(!index.includes("Foundation Model Challenge"));
 assert.ok(index.includes("Sanity baseline"));
@@ -140,12 +142,29 @@ assert.ok(
   /@media \(max-width: 900px\)\s*\{\s*:root\s*\{\s*--page-padding-inline: 24px;\s*\}/s.test(styles),
 );
 assert.ok(styles.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
-assert.ok(styles.includes(".promo-bar > *"));
+const promoRule = styles.match(/\.promo-bar\s*\{[^}]*\}/s)[0];
+for (const declaration of [
+  "padding: 10px var(--page-padding-inline);",
+  "display: flex;",
+  "justify-content: space-between;",
+  "flex-wrap: wrap;",
+  "font-size: 11.5px;",
+]) {
+  assert.ok(promoRule.includes(declaration), `promo bar differs from prediction header: ${declaration}`);
+}
+const heroRule = styles.match(/header\.hero\s*\{[^}]*\}/s)[0];
+assert.ok(heroRule.includes("padding: 28px var(--page-padding-inline) 0;"));
+const heroTopRule = styles.match(/\.hero-top\s*\{[^}]*\}/s)[0];
+assert.ok(!heroTopRule.includes("max-width"));
+assert.ok(!heroTopRule.includes("margin:"));
+const navRule = styles.match(/nav\.site-nav\s*\{[^}]*\}/s)[0];
+assert.ok(!navRule.includes("max-width"));
+assert.ok(!navRule.includes("margin:"));
 assert.ok(styles.includes("--content-max: 1280px"));
 assert.ok(!styles.includes("suite-" + "switcher"));
 for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
   const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
-  assert.ok(html.includes("styles.css?v=chronos-5"), `${htmlName} uses stale strip CSS`);
+  assert.ok(html.includes("styles.css?v=chronos-6"), `${htmlName} uses stale strip CSS`);
 }
 
 for (const directory of [staticDir, docsDir]) {
@@ -171,5 +190,109 @@ assert.deepStrictEqual(
   fs.readFileSync(path.join(root, "outputs", "results.json")),
   fs.readFileSync(path.join(staticDir, "results.json")),
 );
+
+function runProductChart(scriptName, renderExpression, payload = data) {
+  const elements = new Map();
+  const parent = { appendChild(element) { elements.set(element.id, element); } };
+  elements.set("chart-product", { id: "chart-product", hidden: false, parentElement: parent });
+  const document = {
+    getElementById(id) { return elements.get(id) || null; },
+    createElement() { return { hidden: false, textContent: "", className: "", id: "" }; },
+    querySelectorAll() { return []; },
+  };
+  const charts = [];
+  function Chart(element, config) {
+    this.element = element;
+    this.config = config;
+    this.destroy = () => {};
+    charts.push(this);
+  }
+  Chart.defaults = { font: {} };
+  const chartContext = {
+    window: { Chart, STATIC_DASHBOARD: false, location: { pathname: "/", search: "" } },
+    document,
+    Chart,
+    console,
+    URLSearchParams,
+    fetch: async () => { throw new Error("fetch should not run in chart unit tests"); },
+  };
+  vm.createContext(chartContext);
+  vm.runInContext(fs.readFileSync(path.join(staticDir, "common.js"), "utf8"), chartContext);
+  const source = fs.readFileSync(path.join(staticDir, scriptName), "utf8").replace(/\nmain\(\);\s*$/, "\n");
+  vm.runInContext(source, chartContext);
+  chartContext.payload = payload;
+  vm.runInContext(renderExpression, chartContext);
+  return { charts, elements };
+}
+
+function productChartConfig(scriptName, renderExpression) {
+  const { charts } = runProductChart(scriptName, renderExpression);
+  assert.strictEqual(charts.length, 1, `${scriptName} did not create exactly one product chart`);
+  return charts[0].config;
+}
+
+const firstProduct = Object.keys(data.history).sort((a, b) => Number(a) - Number(b))[0];
+const historyCount = data.history[firstProduct].dates.length;
+const forecastCount = data.forecasts.Chronos2[firstProduct].dates.length;
+const challengeChart = productChartConfig(
+  "app.js",
+  `renderProductChart(payload, ${JSON.stringify(firstProduct)})`,
+);
+assert.strictEqual(challengeChart.data.labels.length, historyCount + forecastCount);
+assert.strictEqual(challengeChart.data.datasets.find((set) => set.label === "History").data.filter(Number.isFinite).length, historyCount);
+assert.strictEqual(challengeChart.data.datasets.find((set) => set.label === "Best NN").data.filter(Number.isFinite).length, forecastCount);
+assert.strictEqual(challengeChart.data.datasets.find((set) => set.label === "Chronos-2").data.filter(Number.isFinite).length, forecastCount);
+assert.strictEqual(challengeChart.data.datasets.find((set) => set.label === "Best NN").borderColor, data.models.find((model) => model.key === "NeuralNet").color);
+assert.strictEqual(challengeChart.data.datasets.find((set) => set.label === "Chronos-2").borderColor, data.models.find((model) => model.key === "Chronos2").color);
+assert.strictEqual(challengeChart.data.datasets.length, 5);
+assert.ok(challengeChart.data.labels.every((label) => /^\d{4}-\d{2}-\d{2}$/.test(label)));
+assert.strictEqual(challengeChart.options.scales.x.display, true);
+assert.strictEqual(challengeChart.options.scales.x.ticks.display, true);
+
+const challengeForecastOnlyChart = productChartConfig(
+  "app.js",
+  `showProductHistory = false; renderProductChart(payload, ${JSON.stringify(firstProduct)})`,
+);
+assert.strictEqual(challengeForecastOnlyChart.data.labels.length, forecastCount);
+assert.ok(!challengeForecastOnlyChart.data.datasets.some((set) => set.label === "History"));
+
+const incumbentOnly = JSON.parse(JSON.stringify(data));
+delete incumbentOnly.forecasts.Chronos2;
+delete incumbentOnly.forecasts_by_strategy.direct.Chronos2;
+incumbentOnly.models.find((model) => model.key === "Chronos2").available = false;
+const incumbentOnlyState = runProductChart(
+  "app.js",
+  `renderProductChart(payload, ${JSON.stringify(firstProduct)})`,
+  incumbentOnly,
+);
+assert.strictEqual(incumbentOnlyState.charts.length, 1);
+assert.strictEqual(
+  incumbentOnlyState.charts[0].config.data.datasets.map((set) => set.label).join(","),
+  "History,Best NN",
+);
+
+const modelChart = productChartConfig(
+  "model.js",
+  `renderProduct(payload, modelByKey(payload, "chronos2"), ${JSON.stringify(firstProduct)})`,
+);
+assert.strictEqual(modelChart.data.labels.length, historyCount + forecastCount);
+assert.strictEqual(modelChart.data.datasets.find((set) => set.label === "History").data.filter(Number.isFinite).length, historyCount);
+assert.strictEqual(modelChart.data.datasets.find((set) => set.label === "Chronos-2").data.filter(Number.isFinite).length, forecastCount);
+assert.strictEqual(modelChart.data.datasets.find((set) => set.label === "Chronos-2").borderColor, data.models.find((model) => model.key === "Chronos2").color);
+assert.strictEqual(modelChart.data.datasets.length, 4);
+assert.ok(modelChart.data.labels.every((label) => /^\d{4}-\d{2}-\d{2}$/.test(label)));
+assert.strictEqual(modelChart.options.scales.x.display, true);
+assert.strictEqual(modelChart.options.scales.x.ticks.display, true);
+
+const malformed = JSON.parse(JSON.stringify(data));
+delete malformed.history[firstProduct];
+const malformedState = runProductChart(
+  "app.js",
+  `renderProductChart(payload, ${JSON.stringify(firstProduct)})`,
+  malformed,
+);
+assert.strictEqual(malformedState.charts.length, 0);
+assert.ok(malformedState.elements.get("chart-product-error").textContent.includes("Product explorer unavailable"));
+assert.strictEqual(malformedState.elements.get("chart-product").hidden, true);
 
 console.log("webapp challenge smoke checks passed");
