@@ -45,6 +45,8 @@ assert.strictEqual(vm.runInContext("summaryRows({benchmark_summary_all:[{model:'
 
 const index = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
 assert.ok(index.includes("Best NN vs Chronos-2"));
+assert.ok(index.includes("Final challenge"));
+assert.ok(index.includes("controlled negative-result experiment"));
 assert.ok(!index.includes("One frozen incumbent"));
 assert.ok(!index.includes("No irrelevant leaderboard"));
 assert.ok(index.includes('<span class="brand-logo">NOTINO</span>'));
@@ -78,7 +80,7 @@ for (const legacy of ["XGBoost", "LightGBM", "Dynamic Ridge", "Moving Average", 
 }
 
 const evaluation = fs.readFileSync(path.join(staticDir, "evaluation.html"), "utf8");
-assert.ok(evaluation.includes('class="model-hero evaluation-hero"'));
+assert.ok(evaluation.includes('class="description-strip model-hero evaluation-hero"'));
 assert.ok(evaluation.includes("One fixed contract for both contenders"));
 assert.ok(evaluation.includes("Development OOF selects the winner"));
 assert.ok(!evaluation.includes("Leakage-Safe Head-to-Head"));
@@ -98,6 +100,14 @@ for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.
     assert.ok(promo[1].includes(fact), `${htmlName} has inconsistent promo fact: ${fact}`);
   }
   assert.ok(html.includes('lang="en-GB"'));
+  assert.strictEqual((html.match(/<title/g) || []).length, 1);
+  assert.ok(html.includes("<title>NOTINO - chronos</title>"));
+  assert.strictEqual((html.match(/class="description-strip model-hero\b[^"]*"/g) || []).length, 1);
+  assert.strictEqual((html.match(/class="[^"]*\bmodel-hero\b[^"]*"/g) || []).length, 1);
+  assert.ok(
+    /<header class="hero[^"]*">[\s\S]*?<\/header>\s*<header class="description-strip model-hero/.test(html),
+    `${htmlName} description strip is not immediately below the shared hero`,
+  );
 }
 assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
   'item.textContent = "Same Walk-Forward Test"',
@@ -105,13 +115,46 @@ assert.ok(fs.readFileSync(path.join(staticDir, "common.js"), "utf8").includes(
 
 const styles = fs.readFileSync(path.join(staticDir, "styles.css"), "utf8");
 assert.ok(styles.includes("scrollbar-gutter: stable"));
+for (const declaration of [
+  "--page-padding-inline: 56px;",
+  "--description-strip-padding-block: 40px;",
+  "--description-strip-border-width: 6px;",
+  "--description-strip-min-height: 300px;",
+]) {
+  assert.ok(styles.includes(declaration));
+}
+for (const declaration of [
+  "box-sizing: border-box;",
+  "width: 100%;",
+  "max-width: none;",
+  "min-height: var(--description-strip-min-height);",
+  "margin: 0;",
+  "padding: var(--description-strip-padding-block) var(--page-padding-inline);",
+  "border-bottom: var(--description-strip-border-width) solid var(--mc);",
+]) {
+  assert.ok(styles.match(/\.description-strip\s*\{[^}]*\}/s)[0].includes(declaration));
+}
+assert.strictEqual((styles.match(/^\.description-strip\s*\{/gm) || []).length, 1);
+assert.strictEqual((styles.match(/^\.model-hero\s*\{/gm) || []).length, 0);
+assert.ok(
+  /@media \(max-width: 900px\)\s*\{\s*:root\s*\{\s*--page-padding-inline: 24px;\s*\}/s.test(styles),
+);
 assert.ok(styles.includes("grid-template-columns: repeat(4, minmax(0, 1fr))"));
 assert.ok(styles.includes(".promo-bar > *"));
 assert.ok(styles.includes("--content-max: 1280px"));
 assert.ok(!styles.includes("suite-" + "switcher"));
 for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
   const html = fs.readFileSync(path.join(staticDir, htmlName), "utf8");
-  assert.ok(html.includes("styles.css?v=chronos-3"), `${htmlName} uses stale strip CSS`);
+  assert.ok(html.includes("styles.css?v=chronos-5"), `${htmlName} uses stale strip CSS`);
+}
+
+for (const directory of [staticDir, docsDir]) {
+  const javascript = fs.readdirSync(directory)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => fs.readFileSync(path.join(directory, name), "utf8"))
+    .join("\n");
+  assert.ok(!javascript.includes("document.title"));
+  assert.ok(!javascript.includes("page-title"));
 }
 
 for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.html"]) {
@@ -120,6 +163,9 @@ for (const htmlName of ["index.html", "dataset.html", "evaluation.html", "model.
   assert.ok(!docsHtml.includes('href="/static/'));
   assert.ok(!docsHtml.includes('src="/static/'));
   assert.ok(!docsHtml.includes('href="/'));
+  assert.ok(docsHtml.includes("<title>NOTINO - chronos</title>"));
+  assert.strictEqual((docsHtml.match(/class="description-strip model-hero\b[^"]*"/g) || []).length, 1);
+  assert.strictEqual((docsHtml.match(/class="[^"]*\bmodel-hero\b[^"]*"/g) || []).length, 1);
 }
 assert.deepStrictEqual(
   fs.readFileSync(path.join(root, "outputs", "results.json")),

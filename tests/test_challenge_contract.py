@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -214,3 +215,106 @@ def test_authored_presentation_is_standalone_and_two_contender_focused():
     assert "What would justify another attempt" in combined
     assert "consumed final audit" in combined.lower()
     assert "incomplete" in combined.lower()
+
+
+def test_every_authored_and_generated_page_has_one_shared_description_strip():
+    root = Path(__file__).resolve().parents[1]
+    title = "<title>NOTINO - chronos</title>"
+    page_names = ("index.html", "dataset.html", "evaluation.html", "model.html")
+    route_inventory = {
+        "/": "index.html",
+        "/dataset": "dataset.html",
+        "/evaluation": "evaluation.html",
+        "/model/neuralnet": "model.html",
+        "/model/chronos2": "model.html",
+    }
+    assert len(route_inventory) == 5
+
+    for directory in (root / "webapp" / "static", root / "docs"):
+        for page_name in page_names:
+            source = (directory / page_name).read_text(encoding="utf-8")
+            assert source.count("<title") == 1
+            assert source.count(title) == 1
+            assert len(
+                re.findall(r'class="description-strip model-hero\b[^"]*"', source)
+            ) == 1
+            assert len(re.findall(r'class="[^"]*\bmodel-hero\b[^"]*"', source)) == 1
+            assert re.search(
+                r'<header class="hero[^"]*">.*?</header>\s*'
+                r'<header class="description-strip model-hero[^"]*"[^>]*>',
+                source,
+                flags=re.DOTALL,
+            )
+            assert source.index('class="description-strip') < source.index(
+                '<main id="app">'
+            )
+
+    overview = (root / "webapp" / "static" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "Final challenge" in overview
+    assert "Best NN vs Chronos-2" in overview
+    assert "controlled negative-result experiment" in overview
+
+
+def test_description_strip_geometry_and_title_are_single_source_contracts():
+    root = Path(__file__).resolve().parents[1]
+    styles = (root / "webapp" / "static" / "styles.css").read_text(
+        encoding="utf-8"
+    )
+    for declaration in (
+        "--page-padding-inline: 56px;",
+        "--description-strip-padding-block: 40px;",
+        "--description-strip-border-width: 6px;",
+        "--description-strip-min-height: 300px;",
+    ):
+        assert declaration in styles
+
+    base_rules = re.findall(r"(?m)^\.description-strip\s*\{([^}]*)\}", styles)
+    assert len(base_rules) == 1
+    base = base_rules[0]
+    for declaration in (
+        "box-sizing: border-box;",
+        "width: 100%;",
+        "max-width: none;",
+        "min-height: var(--description-strip-min-height);",
+        "margin: 0;",
+        "padding: var(--description-strip-padding-block) var(--page-padding-inline);",
+        "border-bottom: var(--description-strip-border-width) solid var(--mc);",
+    ):
+        assert declaration in base
+
+    assert re.search(
+        r"@media \(max-width: 900px\)\s*\{\s*"
+        r":root\s*\{\s*--page-padding-inline: 24px;\s*\}",
+        styles,
+    )
+    assert not re.search(r"(?m)^\.model-hero\s*\{", styles)
+
+    forbidden_geometry = re.compile(
+        r"\b(?:box-sizing|width|max-width|margin|padding|padding-left|"
+        r"padding-right|min-height|text-align)\s*:"
+    )
+    for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", styles):
+        if any(
+            class_name in selector
+            for class_name in (
+                ".model-hero",
+                ".overview-hero",
+                ".dataset-hero",
+                ".evaluation-hero",
+            )
+        ):
+            assert not forbidden_geometry.search(body)
+
+    authored_js = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((root / "webapp" / "static").glob("*.js"))
+    )
+    generated_js = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((root / "docs").glob("*.js"))
+    )
+    for javascript in (authored_js, generated_js):
+        assert "document.title" not in javascript
+        assert "page-title" not in javascript
