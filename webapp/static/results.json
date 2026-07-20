@@ -36073,14 +36073,14 @@
   "publication_provenance": {
     "schema_version": "chronos-publication-v1",
     "status": "authenticated",
-    "publication_id": "9ff589e9cfd94f31",
-    "generated_at": "2026-07-18T08:06:41.892553+00:00",
+    "publication_id": "925f281bf6e54e53",
+    "generated_at": "2026-07-20T17:55:35.080870+00:00",
     "model_run_id": "941bbd3a1dd0cf23",
-    "manifest": "outputs/publications/9ff589e9cfd94f31.json",
+    "manifest": "outputs/publications/925f281bf6e54e53.json",
     "source": {
       "status": "content_addressed_worktree",
-      "base_revision": "16701cb67d54802f0bf93e95b3887ec1b921e0b3",
-      "content_sha256": "f30155b8290ff2bce852563473e3d57df76dc9eb688269078c3a30c03017c974",
+      "base_revision": "ecda712f64883b348fe612446475264da1a66ce9",
+      "content_sha256": "490a6b166a0646c5337186fe94f8bebda7b0d57389cf671a23f1e7389af6b126",
       "reason": "Publication-only hardening occurred after model inference. These file hashes bind the exact publication source without claiming that the later source produced the model forecasts."
     }
   }

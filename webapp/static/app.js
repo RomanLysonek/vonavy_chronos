@@ -354,14 +354,18 @@ function renderProductChart(data, productId) {
         datasets.push({
           label: "Chronos q90",
           data: [...historyPadding, ...interval.q90],
-          borderColor: "transparent",
+          borderColor: "rgba(255, 153, 0, 0.6)",
+          borderWidth: 1,
+          borderDash: [4, 3],
           backgroundColor: "rgba(255, 153, 0, 0.16)",
           pointRadius: 0,
         });
         datasets.push({
           label: "Chronos 80% interval",
           data: [...historyPadding, ...interval.q10],
-          borderColor: "transparent",
+          borderColor: "rgba(255, 153, 0, 0.6)",
+          borderWidth: 1,
+          borderDash: [4, 3],
           backgroundColor: "rgba(255, 153, 0, 0.16)",
           pointRadius: 0,
           fill: "-1",
